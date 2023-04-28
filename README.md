@@ -1,5 +1,7 @@
 # Whatsapp Chatbot for Python
 
+### Powered by WhatsApp REST api [green-api.com](https://green-api.com/)
+
 ### Coming soon...
 
 ## License
