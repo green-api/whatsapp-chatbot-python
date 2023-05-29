@@ -1,7 +1,10 @@
 # whatsapp-chatbot-python
 
 ![](https://img.shields.io/badge/license-CC%20BY--ND%204.0-green)
+![](https://img.shields.io/pypi/status/whatsapp-chatbot-python)
 ![](https://img.shields.io/pypi/pyversions/whatsapp-chatbot-python)
+![](https://img.shields.io/github/actions/workflow/status/green-api/whatsapp-chatbot-python/python-package.yml)
+![](https://img.shields.io/pypi/dm/whatsapp-chatbot-python)
 
 - [Документация на русском языке](docs/README.md).
 
