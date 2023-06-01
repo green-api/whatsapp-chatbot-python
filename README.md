@@ -33,7 +33,7 @@ python -m pip install whatsapp-chatbot-python
 ## Import
 
 ```
-from whatsapp_chatbot_python import Bot, Notification
+from whatsapp_chatbot_python import GreenAPIBot, Notification
 ```
 
 ## Examples
@@ -41,7 +41,9 @@ from whatsapp_chatbot_python import Bot, Notification
 ### How to initialize an object
 
 ```
-bot = Bot("1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345")
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345"
+)
 ```
 
 ### How to start receiving and answering messages

@@ -27,6 +27,10 @@ class Bot:
                 break
 
 
+class GreenAPIBot(Bot):
+    pass
+
+
 class GreenAPI(GreenApi):
     pass
 
@@ -35,4 +39,4 @@ class GreenAPIError(Exception):
     pass
 
 
-__all__ = ["Bot", "GreenAPI", "GreenAPIError"]
+__all__ = ["Bot", "GreenAPIBot", "GreenAPI", "GreenAPIError"]

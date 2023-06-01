@@ -1,6 +1,6 @@
 import unittest
 
-from whatsapp_chatbot_python import Bot, Notification
+from whatsapp_chatbot_python import GreenAPIBot, Notification
 
 event_example = {
     "typeWebhook": "incomingMessageReceived",
@@ -45,7 +45,7 @@ class ManagerTestCase(unittest.TestCase):
 
     @property
     def bot(self):
-        return Bot("", "")
+        return GreenAPIBot("", "")
 
 
 if __name__ == '__main__':
