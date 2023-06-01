@@ -43,15 +43,6 @@ from whatsapp_chatbot_python import Bot, Notification
 bot = Bot("1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345")
 ```
 
-Обратите внимание, что ключи можно получать из переменных среды:
-
-```
-from os import environ
-
-ID_INSTANCE = environ["ID_INSTANCE"]
-API_TOKEN_INSTANCE = environ["API_TOKEN_INSTANCE"]
-```
-
 ### Как начать получать сообщения и отвечать на них
 
 Чтобы начать получать сообщения, вам нужно создать функцию-обработчик с одним параметром (`notification`).

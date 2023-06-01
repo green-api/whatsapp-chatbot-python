@@ -44,15 +44,6 @@ from whatsapp_chatbot_python import Bot, Notification
 bot = Bot("1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345")
 ```
 
-Note that keys can be taken from environment variables:
-
-```
-from os import environ
-
-ID_INSTANCE = environ["ID_INSTANCE"]
-API_TOKEN_INSTANCE = environ["API_TOKEN_INSTANCE"]
-```
-
 ### How to start receiving and answering messages
 
 To start receiving messages, you must create a handler function with one parameter (`notification`). The `notification`
