@@ -6,7 +6,7 @@
 ![](https://img.shields.io/github/actions/workflow/status/green-api/whatsapp-chatbot-python/python-package.yml)
 ![](https://img.shields.io/pypi/dm/whatsapp-chatbot-python)
 
-- [Документация на русском языке](docs/README.md).
+- [Документация на русском языке](https://github.com/green-api/whatsapp-chatbot-python/blob/master/docs/README.md).
 
 whatsapp-chatbot-python is a library for integration with WhatsApp messenger using the API
 service [green-api.com](https://green-api.com/en/). You should get a registration token and an account ID in
@@ -60,7 +60,7 @@ brackets.
 
 To start the bot, call the `bot.run_forever` function. You can stop the bot with the key combination Ctrl + C.
 
-Link to example: [base.py](examples/base.py).
+Link to example: [base.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/base.py).
 
 ```
 @bot.router.message(text_message="message")
@@ -82,7 +82,7 @@ You can receive not only incoming messages but also outgoing messages. You can a
 The body of the notification is in `notification.event`. In this example, we get the message type from the notification
 body.
 
-Link to example: [event.py](examples/event.py).
+Link to example: [event.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/event.py).
 
 ```
 @bot.router.message()
@@ -163,7 +163,7 @@ command = ("help", "!/")
 
 #### Example
 
-Link to example: [filters.py](examples/filters.py).
+Link to example: [filters.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/filters.py).
 
 ```
 @bot.router.message(command="help")
@@ -178,7 +178,7 @@ bot.run_forever()
 
 To be notified when a button is pressed, you must use the `bot.router.buttons` object.
 
-Link to example: [buttons.py](examples/buttons.py).
+Link to example: [buttons.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/buttons.py).
 
 ```
 @bot.router.buttons()
@@ -211,4 +211,4 @@ bot.run_forever()
 Licensed under [
 Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0)
 ](https://creativecommons.org/licenses/by-nd/4.0/) terms.
-Please see file [LICENSE](LICENSE).
+Please see file [LICENSE](https://github.com/green-api/whatsapp-chatbot-python/blob/master/LICENSE).
