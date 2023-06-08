@@ -5,7 +5,7 @@ bot = GreenAPIBot(
 )
 
 
-@bot.router.message()
+@bot.router.message(text_message="message")
 def message_handler(notification: Notification) -> None:
     notification.answer("Hello")
 

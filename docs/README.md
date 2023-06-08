@@ -62,7 +62,7 @@ bot = GreenAPIBot(
 Ссылка на пример: [base.py](../examples/base.py).
 
 ```
-@bot.router.message()
+@bot.router.message(text_message="message")
 def message_handler(notification: Notification) -> None:
     notification.answer("Hello")
 
