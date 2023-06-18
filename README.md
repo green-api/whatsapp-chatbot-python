@@ -104,7 +104,7 @@ expressions. Below is a table with filter names and possible values.
 | `from_chat`    | Chats or chats from which you want to receive messages                                    | `"11001234567@c.us"` or `["11001234567@c.us", "11002345678@c.us"]` |
 | `from_sender`  | The sender or senders from whom you want to receive messages                              | `"11001234567@c.us"` or `["11001234567@c.us", "11002345678@c.us"]` |
 | `type_message` | The type or types of message to be handled                                                | `"textMessage"` or `["textMessage", "extendedTextMessage"]`        |
-| `text_message` | Your function will be executed if the text fully matches the text                         | `"Hello. I need help."`                                            |
+| `text_message` | Your function will be executed if the text fully matches the text                         | `"Hello. I need help."` or `["Hello", "I need help"]`              |
 | `regexp`       | Your function will be executed if the text matches the regular expression pattern         | `r"Hello. I need help."`                                           |
 | `command`      | Your function will be executed if the prefix and the command match your values completely | `"help"` or `("help", "!/")`                                       |
 
