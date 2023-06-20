@@ -165,9 +165,9 @@ command = ("help", "!/")
 Ссылка на пример: [filters.py](../examples/filters.py).
 
 ```
-@bot.router.message(command="help")
+@bot.router.message(command="rates")
 def message_handler(notification: Notification) -> None:
-    notification.answer_with_file(file="help.png")
+    notification.answer_with_file(file="data/rates.png")
 
 
 bot.run_forever()
@@ -202,6 +202,8 @@ bot.run_forever()
 ```
 
 ### Пример бота
+
+Ссылка на пример: [full_example.py](../examples/full_example.py).
 
 ```python
 from whatsapp_chatbot_python import GreenAPIBot, Notification

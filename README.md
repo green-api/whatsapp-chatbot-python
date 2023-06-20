@@ -166,9 +166,9 @@ command = ("help", "!/")
 Link to example: [filters.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/filters.py).
 
 ```
-@bot.router.message(command="help")
+@bot.router.message(command="rates")
 def message_handler(notification: Notification) -> None:
-    notification.answer_with_file(file="help.png")
+    notification.answer_with_file(file="data/rates.png")
 
 
 bot.run_forever()
@@ -203,6 +203,10 @@ bot.run_forever()
 ```
 
 ### Example of a bot
+
+Link to example: [full_example.py](
+https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/full_example.py
+).
 
 ```python
 from whatsapp_chatbot_python import GreenAPIBot, Notification
@@ -266,7 +270,6 @@ bot.run_forever()
 
 Licensed under [
 Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0)
-](https://creativecommons.org/licenses/by-nd/4.0/) terms.
-Please see file [LICENSE](
+](https://creativecommons.org/licenses/by-nd/4.0/) terms. Please see file [LICENSE](
 https://github.com/green-api/whatsapp-chatbot-python/blob/master/LICENSE
 ).

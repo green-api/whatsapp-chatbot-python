@@ -5,9 +5,9 @@ bot = GreenAPIBot(
 )
 
 
-@bot.router.message(command="help")
+@bot.router.message(command="rates")
 def message_handler(notification: Notification) -> None:
-    notification.answer_with_file(file="help.png")
+    notification.answer_with_file(file="data/rates.png")
 
 
 bot.run_forever()
