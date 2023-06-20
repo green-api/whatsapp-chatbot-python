@@ -37,7 +37,9 @@ class Observer(AbstractObserver):
 
     def propagate_event(self) -> None:
         for handler in self.handlers:
-            handler.execute_handler(self)
+            response = handler.execute_handler(self)
+            if response:
+                break
 
     def __call__(self, **filters: Any) -> Callable[[HandlerType], HandlerType]:
         def wrapper(handler: HandlerType) -> HandlerType:

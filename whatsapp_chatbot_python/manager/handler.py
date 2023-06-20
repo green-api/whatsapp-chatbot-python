@@ -78,7 +78,7 @@ class AbstractHandler(ABC):
         pass
 
     @abstractmethod
-    def execute_handler(self, observer: "Observer") -> Any:
+    def execute_handler(self, observer: "Observer") -> bool:
         pass
 
 
@@ -98,12 +98,13 @@ class Handler(AbstractHandler):
 
         return True
 
-    def execute_handler(self, observer: "Observer") -> Any:
+    def execute_handler(self, observer: "Observer") -> bool:
         response = self.check_event(observer.event)
         if response:
-            return self.handler(
-                Notification(observer.event, observer.router.api)
-            )
+            self.handler(Notification(observer.event, observer.router.api))
+
+            return True
+        return False
 
 
 __all__ = ["Notification", "HandlerType", "AbstractHandler", "Handler"]

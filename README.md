@@ -104,7 +104,7 @@ expressions. Below is a table with filter names and possible values.
 | `from_chat`    | Chats or chats from which you want to receive messages                                    | `"11001234567@c.us"` or `["11001234567@c.us", "11002345678@c.us"]` |
 | `from_sender`  | The sender or senders from whom you want to receive messages                              | `"11001234567@c.us"` or `["11001234567@c.us", "11002345678@c.us"]` |
 | `type_message` | The type or types of message to be handled                                                | `"textMessage"` or `["textMessage", "extendedTextMessage"]`        |
-| `text_message` | Your function will be executed if the text fully matches the text                         | `"Hello. I need help."`                                            |
+| `text_message` | Your function will be executed if the text fully matches the text                         | `"Hello. I need help."` or `["Hello", "I need help"]`              |
 | `regexp`       | Your function will be executed if the text matches the regular expression pattern         | `r"Hello. I need help."`                                           |
 | `command`      | Your function will be executed if the prefix and the command match your values completely | `"help"` or `("help", "!/")`                                       |
 
@@ -166,9 +166,9 @@ command = ("help", "!/")
 Link to example: [filters.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/filters.py).
 
 ```
-@bot.router.message(command="help")
+@bot.router.message(command="rates")
 def message_handler(notification: Notification) -> None:
-    notification.answer_with_file(file="help.png")
+    notification.answer_with_file(file="data/rates.png")
 
 
 bot.run_forever()
@@ -202,6 +202,66 @@ def buttons_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+### Example of a bot
+
+Link to example: [full_example.py](
+https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/full_example.py
+).
+
+```python
+from whatsapp_chatbot_python import GreenAPIBot, Notification
+
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345"
+)
+
+
+@bot.router.message(command="start")
+def message_handler(notification: Notification) -> None:
+    sender_data = notification.event["senderData"]
+    sender_name = sender_data["senderName"]
+
+    notification.answer(
+        (
+            f"Hello, {sender_name}. Here's what I can do:\n\n"
+            "1. Report a problem\n"
+            "2. Show office address\n"
+            "3. Show available rates\n"
+            "4. Call a support operator\n\n"
+            "Choose a number and send to me."
+        )
+    )
+
+
+@bot.router.message(text_message=["1", "Report a problem"])
+def report_problem_handler(notification: Notification) -> None:
+    notification.answer(
+        "https://github.com/green-api/issues/issues/new", link_preview=False
+    )
+
+
+@bot.router.message(text_message=["2", "Show office address"])
+def show_office_address_handler(notification: Notification) -> None:
+    chat = notification.get_chat()
+
+    notification.api.sending.sendLocation(
+        chatId=chat, latitude=55.7522200, longitude=37.6155600
+    )
+
+
+@bot.router.message(text_message=["3", "Show available rates"])
+def show_available_rates_handler(notification: Notification) -> None:
+    notification.answer_with_file("data/rates.png")
+
+
+@bot.router.message(text_message=["4", "Call a support operator"])
+def call_support_operator_handler(notification: Notification) -> None:
+    notification.answer("Good. A tech support operator will contact you soon.")
+
+
+bot.run_forever()
+```
+
 ## Service methods documentation
 
 [Service methods documentation](https://green-api.com/en/docs/api/)
@@ -210,5 +270,6 @@ bot.run_forever()
 
 Licensed under [
 Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0)
-](https://creativecommons.org/licenses/by-nd/4.0/) terms.
-Please see file [LICENSE](https://github.com/green-api/whatsapp-chatbot-python/blob/master/LICENSE).
+](https://creativecommons.org/licenses/by-nd/4.0/) terms. Please see file [LICENSE](
+https://github.com/green-api/whatsapp-chatbot-python/blob/master/LICENSE
+).

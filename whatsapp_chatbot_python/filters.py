@@ -53,12 +53,16 @@ class TypeMessageFilter(AbstractFilter):
 
 
 class TextMessageFilter(AbstractFilter):
-    def __init__(self, text_message: str):
+    def __init__(self, text_message: Union[str, List[str]]):
         self.text_message = text_message
 
     def check_event(self, event: dict) -> bool:
         text_message = self.get_text_message(event)
-        if text_message == self.text_message:
+
+        if (
+                text_message == self.text_message
+                or text_message in self.text_message
+        ):
             return True
         return False
 
