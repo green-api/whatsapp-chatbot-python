@@ -16,11 +16,13 @@ class AbstractFilter(ABC):
 class ChatIDFilter(AbstractFilter):
     def __init__(self, chat: Union[str, List[str]]):
         self.chat = chat
+        if isinstance(chat, str):
+            self.chat = [chat]
 
     def check_event(self, event: dict) -> bool:
         chat = event["senderData"]["chatId"]
 
-        if chat == self.chat or chat in self.chat:
+        if chat in self.chat:
             return True
         return False
 
@@ -28,11 +30,13 @@ class ChatIDFilter(AbstractFilter):
 class SenderFilter(AbstractFilter):
     def __init__(self, sender: Union[str, List[str]]):
         self.sender = sender
+        if isinstance(sender, str):
+            self.sender = [sender]
 
     def check_event(self, event: dict) -> bool:
         sender = event["senderData"]["sender"]
 
-        if sender == self.sender or sender in self.sender:
+        if sender in self.sender:
             return True
         return False
 
@@ -40,14 +44,13 @@ class SenderFilter(AbstractFilter):
 class TypeMessageFilter(AbstractFilter):
     def __init__(self, type_message: Union[str, List[str]]):
         self.type_message = type_message
+        if isinstance(type_message, str):
+            self.type_message = [type_message]
 
     def check_event(self, event: dict) -> bool:
         type_message = event["messageData"]["typeMessage"]
 
-        if (
-                type_message == self.type_message
-                or type_message in self.type_message
-        ):
+        if type_message in self.type_message:
             return True
         return False
 
@@ -55,14 +58,13 @@ class TypeMessageFilter(AbstractFilter):
 class TextMessageFilter(AbstractFilter):
     def __init__(self, text_message: Union[str, List[str]]):
         self.text_message = text_message
+        if isinstance(text_message, str):
+            self.text_message = [text_message]
 
     def check_event(self, event: dict) -> bool:
         text_message = self.get_text_message(event)
 
-        if (
-                text_message == self.text_message
-                or text_message in self.text_message
-        ):
+        if text_message in self.text_message:
             return True
         return False
 
@@ -83,6 +85,7 @@ class RegExpFilter(AbstractFilter):
 
     def check_event(self, event: dict) -> bool:
         text_message = TextMessageFilter.get_text_message(event)
+
         if fullmatch(self.pattern, text_message):
             return True
         return False

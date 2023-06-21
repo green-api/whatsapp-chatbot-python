@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from whatsapp_chatbot_python import GreenAPIBot, Notification
 
@@ -15,7 +16,7 @@ event_example = {
 
 class ManagerTestCase(unittest.TestCase):
     def test_router(self):
-        bot = self.bot
+        bot = self.create_bot()
 
         @bot.router.message()
         def message_handler(notification: Notification):
@@ -24,7 +25,7 @@ class ManagerTestCase(unittest.TestCase):
         bot.router.route_event(event_example)
 
     def test_filters(self):
-        bot = self.bot
+        bot = self.create_bot()
 
         @bot.router.message(command="help")
         def command_handler(_):
@@ -33,7 +34,7 @@ class ManagerTestCase(unittest.TestCase):
         bot.router.route_event(event_example)
 
     def test_observers(self):
-        bot = self.bot
+        bot = self.create_bot()
 
         @bot.router.message()
         def handler(_):
@@ -43,8 +44,10 @@ class ManagerTestCase(unittest.TestCase):
 
         self.assertEqual(len(bot.router.message.handlers), 2)
 
-    @property
-    def bot(self):
+    @patch("whatsapp_chatbot_python.bot.Bot._update_settings")
+    def create_bot(self, mock__update_settings):
+        mock__update_settings.return_value = None
+
         return GreenAPIBot("", "")
 
 
