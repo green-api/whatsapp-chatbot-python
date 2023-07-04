@@ -31,7 +31,7 @@ def report_problem_handler(notification: Notification) -> None:
 
 @bot.router.message(text_message=["2", "Show office address"])
 def show_office_address_handler(notification: Notification) -> None:
-    chat = notification.get_chat()
+    chat = notification.chat
 
     notification.api.sending.sendLocation(
         chatId=chat, latitude=55.7522200, longitude=37.6155600

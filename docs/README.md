@@ -201,9 +201,121 @@ def buttons_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+### Как управлять состоянием пользователя
+
+В качестве примера был создан бот для регистрации пользователя.
+
+Чтобы управлять состоянием пользователя, нужно создать состояния. Импортируем класс `BaseStates` и наследуемся от него.
+Для управления состоянием нужно использовать `notification.state_manager`. В менеджере есть методы получения, установки,
+обновления и удаления состояния. Также у вас есть возможность сохранить данные пользователя в его состоянии.
+
+| Метод менеджера     | Описание                                                                                    |
+|---------------------|---------------------------------------------------------------------------------------------|
+| `get_state`         | Возвращает класс состояния в котором есть имя состояния и данные пользователя               |
+| `set_state`         | Устанавливает состояние для пользователя. Если состояние существует то данные будут удалены |
+| `update_state`      | Если состояние существует то изменяет его. Если нет то создает новое состояние              |
+| `delete_state`      | Удаляет состояние пользователя. Не забудьте получить данные перед удалением                 |
+| `get_state_data`    | Если состояние существует то возвращает данные в виде словаря (dict)                        |
+| `set_state_data`    | Если состояние существует то изменяет данные на новые                                       |
+| `update_state_data` | Если состояние существует то обновляет данные. Если данных нет то данные будут созданы      |
+| `delete_state_data` | Если состояние существует то удаляет данные                                                 |
+
+Первым аргументом является ID отправителя. Его можно получить обратившись к `notification.sender`.
+
+Ссылка на пример: [states.py](../examples/states.py).
+
+```python
+from whatsapp_chatbot_python import BaseStates, GreenAPIBot, Notification
+
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345"
+)
+
+
+class States(BaseStates):
+    USERNAME = "username"
+    PASSWORD = "password"
+
+
+@bot.router.message(state=None)
+def message_handler(notification: Notification) -> None:
+    sender = notification.sender
+
+    notification.state_manager.set_state(sender, States.USERNAME.value)
+
+    notification.answer("Hello. Tell me your username.")
+
+
+@bot.router.message(command="cancel")
+def cancel_handler(notification: Notification) -> None:
+    sender = notification.sender
+
+    state = notification.state_manager.get_state(sender)
+    if not state:
+        return None
+    else:
+        notification.state_manager.delete_state(sender)
+
+        notification.answer("Bye")
+
+
+@bot.router.message(state=States.USERNAME.value)
+def username_handler(notification: Notification) -> None:
+    sender = notification.sender
+    username = notification.message_text
+
+    if not 5 <= len(username) <= 20:
+        notification.answer("Invalid username.")
+    else:
+        notification.state_manager.update_state(sender, States.PASSWORD.value)
+        notification.state_manager.set_state_data(
+            sender, {"username": username}
+        )
+
+        notification.answer("Tell me your password.")
+
+
+@bot.router.message(state=States.PASSWORD.value)
+def password_handler(notification: Notification) -> None:
+    sender = notification.sender
+    password = notification.message_text
+
+    if not 8 <= len(password) <= 20:
+        notification.answer("Invalid password.")
+    else:
+        data = notification.state_manager.get_state_data(sender)
+
+        username = data["username"]
+
+        notification.answer(
+            (
+                "Successful account creation.\n\n"
+                f"Your username: {username}.\n"
+                f"Your password: {password}."
+            )
+        )
+
+        notification.state_manager.delete_state(sender)
+
+
+bot.run_forever()
+```
+
 ### Пример бота
 
-Ссылка на пример: [full_example.py](../examples/full_example.py).
+В качестве примера был создан бот для поддержки GREEN API. Список команд:
+
+- start (бот поздоровается и отправит список команд)
+- 1 или Report a problem (бот отправит ссылку на создание ошибки на GitHub)
+- 2 или Show office address (бот отправит адрес офиса в виде карты)
+- 3 или Show available rates (бот отправит картинку с тарифами)
+- 4 или Call a support operator (бот отправит текстовое сообщение)
+
+Чтобы отправить текстовое сообщение, нужно использовать метод `notification.answer`.
+Чтобы отправить место (локацию), нужно использовать метод `sending.sendLocation` из `notification.api`.
+Чтобы отправить сообщение с файлом, нужно использовать метод `notification.answer_with_file`.
+
+Ссылка на пример: [full.py](../examples/full.py).
 
 ```python
 from whatsapp_chatbot_python import GreenAPIBot, Notification
@@ -239,7 +351,7 @@ def report_problem_handler(notification: Notification) -> None:
 
 @bot.router.message(text_message=["2", "Show office address"])
 def show_office_address_handler(notification: Notification) -> None:
-    chat = notification.get_chat()
+    chat = notification.chat
 
     notification.api.sending.sendLocation(
         chatId=chat, latitude=55.7522200, longitude=37.6155600
