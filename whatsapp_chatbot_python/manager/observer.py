@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, List, TYPE_CHECKING
 
 from .handler import HandlerType, AbstractHandler, Handler
+from .state import AbstractStateManager, StateManager
 
 if TYPE_CHECKING:
     from .router import Router
@@ -10,6 +11,7 @@ if TYPE_CHECKING:
 class AbstractObserver(ABC):
     event: dict
     handlers: List[AbstractHandler]
+    state_manager: AbstractStateManager
 
     def update_event(self, event: dict) -> None:
         self.event = event
@@ -31,6 +33,7 @@ class Observer(AbstractObserver):
 
         self.event = {}
         self.handlers = []
+        self.state_manager = StateManager()
 
     def add_handler(self, handler: HandlerType, **filters: Any) -> None:
         self.handlers.append(Handler(handler, **filters))

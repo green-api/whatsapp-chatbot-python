@@ -7,6 +7,7 @@ from ..filters import filters as event_filters
 
 if TYPE_CHECKING:
     from .observer import Observer
+    from .state import AbstractStateManager
     from ..bot import GreenAPI
 
 
@@ -14,16 +15,49 @@ class Notification:
     event: dict
 
     api: "GreenAPI"
+    state_manager: "AbstractStateManager"
 
-    def __init__(self, event: dict, api: "GreenAPI"):
+    def __init__(
+            self,
+            event: dict,
+            api: "GreenAPI",
+            state_manager: "AbstractStateManager"
+    ):
         self.event = event
 
         self.api = api
+        self.state_manager = state_manager
+
+    @property
+    def chat(self) -> Optional[str]:
+        return self.get_chat()
+
+    @property
+    def sender(self) -> Optional[str]:
+        return self.get_sender()
+
+    @property
+    def message_text(self) -> Optional[str]:
+        return self.get_message_text()
 
     def get_chat(self) -> Optional[str]:
         type_webhook = self.event["typeWebhook"]
         if type_webhook != "outgoingMessageStatus":
             return self.event["senderData"]["chatId"]
+
+    def get_sender(self) -> Optional[str]:
+        type_webhook = self.event["typeWebhook"]
+        if type_webhook != "outgoingMessageStatus":
+            return self.event["senderData"]["sender"]
+
+    def get_message_text(self) -> Optional[str]:
+        message_data = self.event["messageData"]
+
+        type_message = message_data["typeMessage"]
+        if type_message == "textMessage":
+            return message_data["textMessageData"]["textMessage"]
+        elif type_message == "extendedTextMessage":
+            return message_data["extendedTextMessageData"]["text"]
 
     def answer(
             self,
@@ -74,7 +108,7 @@ class AbstractHandler(ABC):
     filters: Dict[str, Any]
 
     @abstractmethod
-    def check_event(self, event: dict) -> bool:
+    def check_event(self, notification: Notification) -> bool:
         pass
 
     @abstractmethod
@@ -87,21 +121,25 @@ class Handler(AbstractHandler):
         self.handler = handler
         self.filters = filters
 
-    def check_event(self, event: dict) -> bool:
+    def check_event(self, notification: Notification) -> bool:
         for filter_name in self.filters.keys():
             filter_ = event_filters.get(filter_name)
             if filter_:
                 filter_data = self.filters[filter_name]
-                response = filter_(filter_data).check_event(event)
+                response = filter_(filter_data).check_event(notification)
                 if not response:
                     return False
 
         return True
 
     def execute_handler(self, observer: "Observer") -> bool:
-        response = self.check_event(observer.event)
+        notification = Notification(
+            observer.event, observer.router.api, observer.state_manager
+        )
+
+        response = self.check_event(notification)
         if response:
-            self.handler(Notification(observer.event, observer.router.api))
+            self.handler(notification)
 
             return True
         return False

@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from re import fullmatch
-from typing import Dict, List, Optional, Type, Union
+from typing import Dict, List, Optional, TYPE_CHECKING, Type, Union
+
+if TYPE_CHECKING:
+    from .manager.handler import Notification
 
 
 class AbstractFilter(ABC):
@@ -9,7 +12,7 @@ class AbstractFilter(ABC):
         pass
 
     @abstractmethod
-    def check_event(self, event: dict) -> bool:
+    def check_event(self, notification: "Notification") -> bool:
         pass
 
 
@@ -19,8 +22,8 @@ class ChatIDFilter(AbstractFilter):
         if isinstance(chat, str):
             self.chat = [chat]
 
-    def check_event(self, event: dict) -> bool:
-        chat = event["senderData"]["chatId"]
+    def check_event(self, notification: "Notification") -> bool:
+        chat = notification.chat
 
         if chat in self.chat:
             return True
@@ -33,8 +36,8 @@ class SenderFilter(AbstractFilter):
         if isinstance(sender, str):
             self.sender = [sender]
 
-    def check_event(self, event: dict) -> bool:
-        sender = event["senderData"]["sender"]
+    def check_event(self, notification: "Notification") -> bool:
+        sender = notification.sender
 
         if sender in self.sender:
             return True
@@ -47,8 +50,8 @@ class TypeMessageFilter(AbstractFilter):
         if isinstance(type_message, str):
             self.type_message = [type_message]
 
-    def check_event(self, event: dict) -> bool:
-        type_message = event["messageData"]["typeMessage"]
+    def check_event(self, notification: "Notification") -> bool:
+        type_message = notification.event["messageData"]["typeMessage"]
 
         if type_message in self.type_message:
             return True
@@ -61,30 +64,20 @@ class TextMessageFilter(AbstractFilter):
         if isinstance(text_message, str):
             self.text_message = [text_message]
 
-    def check_event(self, event: dict) -> bool:
-        text_message = self.get_text_message(event)
+    def check_event(self, notification: "Notification") -> bool:
+        text_message = notification.message_text
 
         if text_message in self.text_message:
             return True
         return False
-
-    @staticmethod
-    def get_text_message(event: dict) -> Optional[str]:
-        message_data = event["messageData"]
-
-        type_message = message_data["typeMessage"]
-        if type_message == "textMessage":
-            return message_data["textMessageData"]["textMessage"]
-        elif type_message == "extendedTextMessage":
-            return message_data["extendedTextMessageData"]["text"]
 
 
 class RegExpFilter(AbstractFilter):
     def __init__(self, pattern: str):
         self.pattern = pattern
 
-    def check_event(self, event: dict) -> bool:
-        text_message = TextMessageFilter.get_text_message(event)
+    def check_event(self, notification: "Notification") -> bool:
+        text_message = notification.message_text
 
         if fullmatch(self.pattern, text_message):
             return True
@@ -100,12 +93,30 @@ class CommandFilter(AbstractFilter):
             if len(command) == 2:
                 self.command, self.prefixes = command
 
-    def check_event(self, event: dict) -> bool:
-        text_message = TextMessageFilter.get_text_message(event)
+    def check_event(self, notification: "Notification") -> bool:
+        text_message = notification.message_text
 
         for prefix in self.prefixes:
             if text_message.split()[0] != f"{prefix}{self.command}":
                 continue
+            return True
+        return False
+
+
+class StateFilter(AbstractFilter):
+    def __init__(self, state_name: Optional[str]):
+        self.state_name = state_name
+
+    def check_event(self, notification: "Notification") -> bool:
+        sender = notification.sender
+
+        state = notification.state_manager.get_state(sender)
+        if not state:
+            if self.state_name is None:
+                return True
+            return False
+
+        if state.name == self.state_name:
             return True
         return False
 
@@ -116,7 +127,8 @@ filters: Dict[str, Type[AbstractFilter]] = {
     "type_message": TypeMessageFilter,
     "text_message": TextMessageFilter,
     "regexp": RegExpFilter,
-    "command": CommandFilter
+    "command": CommandFilter,
+    "state": StateFilter
 }
 
 __all__ = [
@@ -127,5 +139,6 @@ __all__ = [
     "TextMessageFilter",
     "RegExpFilter",
     "CommandFilter",
+    "StateFilter",
     "filters"
 ]
