@@ -145,4 +145,4 @@ class Handler(AbstractHandler):
         return False
 
 
-__all__ = ["Notification", "HandlerType", "AbstractHandler", "Handler"]
+__all__ = ["AbstractHandler", "Handler", "HandlerType", "Notification"]

@@ -1,6 +1,6 @@
 from typing import Dict, TYPE_CHECKING
 
-from .observer import AbstractObserver, Observer, ButtonObserver
+from .observer import AbstractObserver, ButtonObserver, Observer
 
 if TYPE_CHECKING:
     from ..bot import GreenAPI

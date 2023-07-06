@@ -1,11 +1,11 @@
-from .bot import Bot, GreenAPIBot, GreenAPI, GreenAPIError
+from .bot import Bot, GreenAPI, GreenAPIBot, GreenAPIError
 from .manager.handler import Notification
 from .manager.state import BaseStates
 
 __all__ = [
     "Bot",
-    "GreenAPIBot",
     "GreenAPI",
+    "GreenAPIBot",
     "GreenAPIError",
     "Notification",
     "BaseStates"

@@ -1,3 +1,5 @@
+from typing import NoReturn, Optional
+
 from whatsapp_api_client_python.API import GreenApi
 
 from .manager.router import Router
@@ -11,7 +13,7 @@ class Bot:
 
         self.router = Router(self.api)
 
-    def run_forever(self):
+    def run_forever(self) -> Optional[NoReturn]:
         while True:
             try:
                 response = self.api.receiving.receiveNotification()
@@ -28,7 +30,7 @@ class Bot:
             except KeyboardInterrupt:
                 break
 
-    def _update_settings(self):
+    def _update_settings(self) -> Optional[NoReturn]:
         settings = self.api.account.getSettings()
         if settings.error:
             raise GreenAPIError(settings.error)
@@ -50,11 +52,11 @@ class Bot:
             })
 
 
-class GreenAPIBot(Bot):
+class GreenAPI(GreenApi):
     pass
 
 
-class GreenAPI(GreenApi):
+class GreenAPIBot(Bot):
     pass
 
 
@@ -62,4 +64,4 @@ class GreenAPIError(Exception):
     pass
 
 
-__all__ = ["Bot", "GreenAPIBot", "GreenAPI", "GreenAPIError"]
+__all__ = ["Bot", "GreenAPI", "GreenAPIBot", "GreenAPIError"]
