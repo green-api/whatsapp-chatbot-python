@@ -1,9 +1,9 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from whatsapp_chatbot_python import GreenAPIBot, Notification
 
-event_example = {
+event_example: dict = {
     "typeWebhook": "incomingMessageReceived",
     "messageData": {
         "typeMessage": "textMessage",
@@ -45,7 +45,7 @@ class ManagerTestCase(unittest.TestCase):
         self.assertEqual(len(bot.router.message.handlers), 2)
 
     @patch("whatsapp_chatbot_python.bot.Bot._update_settings")
-    def create_bot(self, mock__update_settings):
+    def create_bot(self, mock__update_settings: MagicMock) -> GreenAPIBot:
         mock__update_settings.return_value = None
 
         return GreenAPIBot("", "")

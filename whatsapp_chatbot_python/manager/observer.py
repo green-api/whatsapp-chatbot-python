@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable, List, TYPE_CHECKING
 
-from .handler import HandlerType, AbstractHandler, Handler
+from .handler import AbstractHandler, Handler, HandlerType
 from .state import AbstractStateManager, StateManager
 
 if TYPE_CHECKING:
@@ -68,4 +68,4 @@ class ButtonObserver(Observer):
         self.router.message.add_handler(handler, **filters)
 
 
-__all__ = ["AbstractObserver", "Observer", "ButtonObserver"]
+__all__ = ["AbstractObserver", "ButtonObserver", "Observer"]
