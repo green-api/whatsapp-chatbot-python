@@ -1,1 +1,1 @@
-whatsapp-api-client-python==0.0.39
+whatsapp-api-client-python==0.0.40
