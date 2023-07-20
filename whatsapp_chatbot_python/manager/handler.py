@@ -56,10 +56,13 @@ class Notification:
         type_message = message_data["typeMessage"]
         if type_message == "textMessage":
             return message_data["textMessageData"]["textMessage"]
-        elif type_message == "extendedTextMessage" or type_message == "quotedMessage":
+        elif (
+                type_message == "extendedTextMessage"
+                or type_message == "quotedMessage"
+        ):
             return message_data["extendedTextMessageData"]["text"]
         else:
-            return "not supported"
+            return ""
 
     def answer(
             self,
