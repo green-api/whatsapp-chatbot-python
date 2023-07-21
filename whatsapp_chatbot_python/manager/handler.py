@@ -61,8 +61,6 @@ class Notification:
                 or type_message == "quotedMessage"
         ):
             return message_data["extendedTextMessageData"]["text"]
-        else:
-            return ""
 
     def answer(
             self,

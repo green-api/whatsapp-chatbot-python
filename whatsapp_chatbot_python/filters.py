@@ -66,6 +66,8 @@ class TextMessageFilter(AbstractFilter):
 
     def check_event(self, notification: "Notification") -> bool:
         text_message = notification.message_text
+        if text_message is None:
+            return False
 
         if text_message in self.text_message:
             return True
@@ -78,6 +80,8 @@ class RegExpFilter(AbstractFilter):
 
     def check_event(self, notification: "Notification") -> bool:
         text_message = notification.message_text
+        if text_message is None:
+            return False
 
         if fullmatch(self.pattern, text_message):
             return True
@@ -95,6 +99,8 @@ class CommandFilter(AbstractFilter):
 
     def check_event(self, notification: "Notification") -> bool:
         text_message = notification.message_text
+        if text_message is None:
+            return False
 
         for prefix in self.prefixes:
             if text_message.split()[0] != f"{prefix}{self.command}":
@@ -131,6 +137,8 @@ filters: Dict[str, Type[AbstractFilter]] = {
     "state": StateFilter
 }
 
+TEXT_TYPES = ["textMessage", "extendedTextMessage", "quotedMessage"]
+
 __all__ = [
     "AbstractFilter",
     "ChatIDFilter",
@@ -140,5 +148,6 @@ __all__ = [
     "RegExpFilter",
     "CommandFilter",
     "StateFilter",
-    "filters"
+    "filters",
+    "TEXT_TYPES"
 ]

@@ -1,4 +1,5 @@
 from whatsapp_chatbot_python import BaseStates, GreenAPIBot, Notification
+from whatsapp_chatbot_python.filters import TEXT_TYPES
 
 bot = GreenAPIBot(
     "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345"
@@ -32,7 +33,7 @@ def cancel_handler(notification: Notification) -> None:
         notification.answer("Bye")
 
 
-@bot.router.message(state=States.USERNAME.value)
+@bot.router.message(state=States.USERNAME.value, type_message=TEXT_TYPES)
 def username_handler(notification: Notification) -> None:
     sender = notification.sender
     username = notification.message_text
@@ -48,7 +49,7 @@ def username_handler(notification: Notification) -> None:
         notification.answer("Tell me your password.")
 
 
-@bot.router.message(state=States.PASSWORD.value)
+@bot.router.message(state=States.PASSWORD.value, type_message=TEXT_TYPES)
 def password_handler(notification: Notification) -> None:
     sender = notification.sender
     password = notification.message_text
