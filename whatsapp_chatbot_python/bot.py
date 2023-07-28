@@ -6,10 +6,22 @@ from .manager.router import Router
 
 
 class Bot:
-    def __init__(self, id_instance: str, api_token_instance: str):
+    def __init__(
+            self,
+            id_instance: str,
+            api_token_instance: str,
+            settings: Optional[dict] = None,
+            delete_notifications_at_startup: bool = True
+    ):
         self.api = GreenAPI(id_instance, api_token_instance)
 
-        self._update_settings()
+        if not settings:
+            self._update_settings()
+        else:
+            self.api.account.setSettings(settings)
+
+        if delete_notifications_at_startup:
+            self._delete_notifications_at_startup()
 
         self.router = Router(self.api)
 
@@ -50,6 +62,17 @@ class Bot:
                 "outgoingMessageWebhook": "yes",
                 "outgoingAPIMessageWebhook": "yes"
             })
+
+    def _delete_notifications_at_startup(self) -> Optional[NoReturn]:
+        while True:
+            response = self.api.receiving.receiveNotification()
+            if response.error:
+                raise GreenAPIError(response.error)
+
+            if not response.data:
+                break
+
+            self.api.receiving.deleteNotification(response.data["receiptId"])
 
 
 class GreenAPI(GreenApi):
