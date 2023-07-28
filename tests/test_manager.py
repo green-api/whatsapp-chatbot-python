@@ -48,7 +48,7 @@ class ManagerTestCase(unittest.TestCase):
     def create_bot(self, mock__update_settings: MagicMock) -> GreenAPIBot:
         mock__update_settings.return_value = None
 
-        return GreenAPIBot("", "")
+        return GreenAPIBot("", "", delete_notifications_at_startup=False)
 
 
 if __name__ == '__main__':
