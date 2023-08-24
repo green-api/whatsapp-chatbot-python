@@ -49,8 +49,8 @@ bot = GreenAPIBot(
 ### How to set up an instance
 
 To start receiving incoming notifications, you need to set up an instance. Open the personal cabinet page at
-the [link](https://console.green-api.com/). Select an instance from the list and click on it. Click **Change**. In the *
-*Notifications** category, enable all notifications that you want to receive.
+the [link](https://console.green-api.com/). Select an instance from the list and click on it. Click **Change**. In the
+**Notifications** category, enable all notifications that you want to receive.
 
 ### How to start receiving and answering messages
 
@@ -114,8 +114,8 @@ expressions. Below is a table with filter names and possible values.
 | `from_chat`    | Chats or chats from which you want to receive messages                                    | `"11001234567@c.us"` or `["11001234567@c.us", "11002345678@c.us"]` |
 | `from_sender`  | The sender or senders from whom you want to receive messages                              | `"11001234567@c.us"` or `["11001234567@c.us", "11002345678@c.us"]` |
 | `type_message` | The type or types of message to be handled                                                | `"textMessage"` or `["textMessage", "extendedTextMessage"]`        |
-| `text_message` | Your function will be executed if the text fully matches the text                         | `"Hello. I need help."` or `["Hello", "I need help"]`              |
-| `regexp`       | Your function will be executed if the text matches the regular expression pattern         | `r"Hello. I need help."`                                           |
+| `text_message` | Your function will be executed if the text fully matches the text                         | `"message"` or `["message", "MESSAGE"]`                            |
+| `regexp`       | Your function will be executed if the text matches the regular expression pattern         | `r"message"` or `(r"message", re.IGNORECASE)`                      |
 | `command`      | Your function will be executed if the prefix and the command match your values completely | `"help"` or `("help", "!/")`                                       |
 
 #### How to add filters through the decorator
