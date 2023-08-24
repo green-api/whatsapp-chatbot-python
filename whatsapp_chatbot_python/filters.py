@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from re import fullmatch
+from re import RegexFlag, fullmatch
 from typing import Dict, List, Optional, TYPE_CHECKING, Type, Union
 
 if TYPE_CHECKING:
@@ -75,15 +75,16 @@ class TextMessageFilter(AbstractFilter):
 
 
 class RegExpFilter(AbstractFilter):
-    def __init__(self, pattern: str):
+    def __init__(self, pattern: str, flags: Union[RegexFlag, int] = 0):
         self.pattern = pattern
+        self.flags = flags
 
     def check_event(self, notification: "Notification") -> bool:
         text_message = notification.message_text
         if text_message is None:
             return False
 
-        if fullmatch(self.pattern, text_message):
+        if fullmatch(self.pattern, text_message, self.flags):
             return True
         return False
 
