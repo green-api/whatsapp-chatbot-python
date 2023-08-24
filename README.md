@@ -46,6 +46,12 @@ bot = GreenAPIBot(
 )
 ```
 
+### How to set up an instance
+
+To start receiving incoming notifications, you need to set up an instance. Open the personal cabinet page at
+the [link](https://console.green-api.com/). Select an instance from the list and click on it. Click **Change**. In the *
+*Notifications** category, enable all notifications that you want to receive.
+
 ### How to start receiving and answering messages
 
 To start receiving messages, you must create a handler function with one parameter (`notification`). The `notification`
@@ -59,6 +65,8 @@ decorator as in the example or with the `bot.router.message.add_handler` functio
 brackets.
 
 To start the bot, call the `bot.run_forever` function. You can stop the bot with the key combination Ctrl + C.
+
+In this example, the bot will only answer the `message` message.
 
 Link to example: [base.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/base.py).
 
@@ -81,6 +89,8 @@ You can receive not only incoming messages but also outgoing messages. You can a
 
 The body of the notification is in `notification.event`. In this example, we get the message type from the notification
 body.
+
+In this example, the bot receives all incoming messages.
 
 Link to example: [event.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/event.py).
 
@@ -162,6 +172,8 @@ command = ("help", "!/")
 ```
 
 #### Example
+
+In this example, the bot will send a photo in response to the `rates` command.
 
 Link to example: [filters.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/filters.py).
 
@@ -315,6 +327,8 @@ As an example, a bot was created to support the GREEN API. Command list:
 To send a text message, you have to use the `notification.answer` method.
 To send a location, you have to use the `sending.sendLocation` method from `notification.api`.
 To send a message with a file, you have to use the `notification.answer_with_file` method.
+
+In this example, the bot only responds to commands from the list above.
 
 Link to example: [full.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/full.py).
 

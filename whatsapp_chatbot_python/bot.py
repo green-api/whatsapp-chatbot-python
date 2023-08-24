@@ -1,6 +1,6 @@
 from typing import NoReturn, Optional
 
-from whatsapp_api_client_python.API import GreenApi
+from whatsapp_api_client_python.API import GreenApi, Response
 
 from .manager.router import Router
 
@@ -18,7 +18,7 @@ class Bot:
         if not settings:
             self._update_settings()
         else:
-            self.api.account.setSettings(settings)
+            self.__validate_response(self.api.account.setSettings(settings))
 
         if delete_notifications_at_startup:
             self._delete_notifications_at_startup()
@@ -29,8 +29,8 @@ class Bot:
         while True:
             try:
                 response = self.api.receiving.receiveNotification()
-                if response.error:
-                    raise GreenAPIError(response.error)
+
+                self.__validate_response(response)
 
                 if not response.data:
                     continue
@@ -38,14 +38,18 @@ class Bot:
 
                 self.router.route_event(response["body"])
 
-                self.api.receiving.deleteNotification(response["receiptId"])
+                self.__validate_response(
+                    self.api.receiving.deleteNotification(
+                        response["receiptId"]
+                    )
+                )
             except KeyboardInterrupt:
                 break
 
     def _update_settings(self) -> Optional[NoReturn]:
         settings = self.api.account.getSettings()
-        if settings.error:
-            raise GreenAPIError(settings.error)
+
+        self.__validate_response(settings)
 
         response = settings.data
 
@@ -57,22 +61,37 @@ class Bot:
                 and outgoing_message_webhook == "no"
                 and outgoing_api_message_webhook == "no"
         ):
-            self.api.account.setSettings({
-                "incomingWebhook": "yes",
-                "outgoingMessageWebhook": "yes",
-                "outgoingAPIMessageWebhook": "yes"
-            })
+            self.__validate_response(
+                self.api.account.setSettings({
+                    "incomingWebhook": "yes",
+                    "outgoingMessageWebhook": "yes",
+                    "outgoingAPIMessageWebhook": "yes"
+                })
+            )
 
     def _delete_notifications_at_startup(self) -> Optional[NoReturn]:
         while True:
             response = self.api.receiving.receiveNotification()
-            if response.error:
-                raise GreenAPIError(response.error)
+
+            self.__validate_response(response)
 
             if not response.data:
                 break
 
-            self.api.receiving.deleteNotification(response.data["receiptId"])
+            self.__validate_response(
+                self.api.receiving.deleteNotification(
+                    response.data["receiptId"]
+                )
+            )
+
+    @staticmethod
+    def __validate_response(response: Response) -> Optional[NoReturn]:
+        if response.code != 200:
+            if response.error:
+                raise GreenAPIError(response.error)
+            raise GreenAPIError(
+                f"GreenAPI error occurred with status code {response.code}"
+            )
 
 
 class GreenAPI(GreenApi):
