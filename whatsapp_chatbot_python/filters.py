@@ -76,8 +76,12 @@ class TextMessageFilter(AbstractFilter):
 
 class RegExpFilter(AbstractFilter):
     def __init__(self, pattern: str, flags: Union[RegexFlag, int] = 0):
-        self.pattern = pattern
-        self.flags = flags
+        if isinstance(pattern, str):
+            self.pattern = pattern
+            self.flags = flags
+        elif isinstance(pattern, tuple):
+            if len(pattern) == 2:
+                self.pattern, self.flags = pattern
 
     def check_event(self, notification: "Notification") -> bool:
         text_message = notification.message_text
