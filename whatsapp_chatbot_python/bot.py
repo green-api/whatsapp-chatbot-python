@@ -1,6 +1,6 @@
 from typing import NoReturn, Optional
 
-from whatsapp_api_client_python.API import GreenApi, Response
+from whatsapp_api_client_python.API import GreenAPI, GreenAPIResponse
 
 from .manager.router import Router
 
@@ -85,17 +85,13 @@ class Bot:
             )
 
     @staticmethod
-    def __validate_response(response: Response) -> Optional[NoReturn]:
+    def __validate_response(response: GreenAPIResponse) -> Optional[NoReturn]:
         if response.code != 200:
             if response.error:
                 raise GreenAPIError(response.error)
             raise GreenAPIError(
                 f"GreenAPI error occurred with status code {response.code}"
             )
-
-
-class GreenAPI(GreenApi):
-    pass
 
 
 class GreenAPIBot(Bot):
