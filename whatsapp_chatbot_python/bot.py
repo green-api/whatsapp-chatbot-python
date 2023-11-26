@@ -28,20 +28,36 @@ class Bot:
             raise_errors=raise_errors
         )
 
-        self.__prepare_logger()
         self.logger = logging.getLogger("whatsapp-chatbot-python")
+        self.__prepare_logger()
 
         if not settings:
             self._update_settings()
         else:
+            self.logger.log(logging.DEBUG, "Updating instance settings.")
+
             self.api.account.setSettings(settings)
+
+        if debug_mode:
+            if not delete_notifications_at_startup:
+                delete_notifications_at_startup = True
+
+                self.logger.log(
+                    logging.DEBUG, "Enabled delete_notifications_at_startup."
+                )
 
         if delete_notifications_at_startup:
             self._delete_notifications_at_startup()
 
-        self.router = Router(self.api)
+        self.router = Router(self.api, self.logger)
 
     def run_forever(self) -> Optional[NoReturn]:
+        self.api.session.headers["Connection"] = "keep-alive"
+
+        self.logger.log(
+            logging.INFO, "Started receiving incoming notifications."
+        )
+
         while True:
             try:
                 response = self.api.receiving.receiveNotification()
@@ -56,7 +72,15 @@ class Bot:
             except KeyboardInterrupt:
                 break
 
+        self.api.session.headers["Connection"] = "close"
+
+        self.logger.log(
+            logging.INFO, "Stopped receiving incoming notifications."
+        )
+
     def _update_settings(self) -> Optional[NoReturn]:
+        self.logger.log(logging.DEBUG, "Checking current instance settings.")
+
         settings = self.api.account.getSettings()
 
         response = settings.data
@@ -69,6 +93,14 @@ class Bot:
                 and outgoing_message_webhook == "no"
                 and outgoing_api_message_webhook == "no"
         ):
+            self.logger.log(
+                logging.INFO, (
+                    "All message notifications are disabled. "
+                    "Enabling incoming and outgoing notifications. "
+                    "Settings will be applied within 5 minutes."
+                )
+            )
+
             self.api.account.setSettings({
                 "incomingWebhook": "yes",
                 "outgoingMessageWebhook": "yes",
@@ -76,6 +108,12 @@ class Bot:
             })
 
     def _delete_notifications_at_startup(self) -> Optional[NoReturn]:
+        self.api.session.headers["Connection"] = "keep-alive"
+
+        self.logger.log(
+            logging.DEBUG, "Started deleting old incoming notifications."
+        )
+
         while True:
             response = self.api.receiving.receiveNotification()
 
@@ -84,11 +122,26 @@ class Bot:
 
             self.api.receiving.deleteNotification(response.data["receiptId"])
 
+        self.api.session.headers["Connection"] = "close"
+
+        self.logger.log(
+            logging.DEBUG, "Stopped deleting old incoming notifications."
+        )
+
+        self.logger.log(logging.INFO, "Deleted old incoming notifications.")
+
     def __prepare_logger(self) -> None:
-        if self.debug_mode:
-            logging.basicConfig(level=logging.DEBUG)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            "%(name)s:%(levelname)s:%(message)s"
+        ))
+
+        self.logger.addHandler(handler)
+
+        if not self.debug_mode:
+            self.logger.setLevel(logging.INFO)
         else:
-            logging.basicConfig(level=logging.INFO)
+            self.logger.setLevel(logging.DEBUG)
 
 
 class GreenAPIBot(Bot):

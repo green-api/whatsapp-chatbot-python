@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, TYPE_CHECKING
 
 from .observer import AbstractObserver, ButtonObserver, Observer
@@ -7,8 +8,9 @@ if TYPE_CHECKING:
 
 
 class Router:
-    def __init__(self, api: "GreenAPI"):
+    def __init__(self, api: "GreenAPI", logger: logging.Logger):
         self.api = api
+        self.logger = logger
 
         self.message: AbstractObserver = Observer(self)
         self.outgoing_message: AbstractObserver = Observer(self)
