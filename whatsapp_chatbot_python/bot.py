@@ -13,6 +13,9 @@ class Bot:
             api_token_instance: str,
             debug_mode: bool = False,
             raise_errors: bool = True,
+            host: Optional[str] = None,
+            media: Optional[str] = None,
+            bot_debug_mode: bool = False,
             settings: Optional[dict] = None,
             delete_notifications_at_startup: bool = True
     ):
@@ -25,8 +28,12 @@ class Bot:
             id_instance,
             api_token_instance,
             debug_mode=debug_mode,
-            raise_errors=raise_errors
+            raise_errors=raise_errors,
+            host=host or "https://api.green-api.com",
+            media=media or "https://media.green-api.com"
         )
+
+        self.bot_debug_mode = bot_debug_mode
 
         self.logger = logging.getLogger("whatsapp-chatbot-python")
         self.__prepare_logger()
@@ -38,7 +45,7 @@ class Bot:
 
             self.api.account.setSettings(settings)
 
-        if debug_mode:
+        if bot_debug_mode:
             if not delete_notifications_at_startup:
                 delete_notifications_at_startup = True
 
@@ -141,7 +148,7 @@ class Bot:
 
         self.logger.addHandler(handler)
 
-        if not self.debug_mode:
+        if not self.bot_debug_mode:
             self.logger.setLevel(logging.INFO)
         else:
             self.logger.setLevel(logging.DEBUG)
