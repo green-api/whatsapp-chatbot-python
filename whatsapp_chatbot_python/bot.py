@@ -1,6 +1,7 @@
+import logging
 from typing import NoReturn, Optional
 
-from whatsapp_api_client_python.API import GreenApi, Response
+from whatsapp_api_client_python.API import GreenAPI, GreenAPIError
 
 from .manager.router import Router
 
@@ -10,27 +11,63 @@ class Bot:
             self,
             id_instance: str,
             api_token_instance: str,
+            debug_mode: bool = False,
+            raise_errors: bool = True,
+            host: Optional[str] = None,
+            media: Optional[str] = None,
+            bot_debug_mode: bool = False,
             settings: Optional[dict] = None,
             delete_notifications_at_startup: bool = True
     ):
-        self.api = GreenAPI(id_instance, api_token_instance)
+        self.id_instance = id_instance
+        self.api_token_instance = api_token_instance
+        self.debug_mode = debug_mode
+        self.raise_errors = raise_errors
+
+        self.api = GreenAPI(
+            id_instance,
+            api_token_instance,
+            debug_mode=debug_mode,
+            raise_errors=raise_errors,
+            host=host or "https://api.green-api.com",
+            media=media or "https://media.green-api.com"
+        )
+
+        self.bot_debug_mode = bot_debug_mode
+
+        self.logger = logging.getLogger("whatsapp-chatbot-python")
+        self.__prepare_logger()
 
         if not settings:
             self._update_settings()
         else:
-            self.__validate_response(self.api.account.setSettings(settings))
+            self.logger.log(logging.DEBUG, "Updating instance settings.")
+
+            self.api.account.setSettings(settings)
+
+        if bot_debug_mode:
+            if not delete_notifications_at_startup:
+                delete_notifications_at_startup = True
+
+                self.logger.log(
+                    logging.DEBUG, "Enabled delete_notifications_at_startup."
+                )
 
         if delete_notifications_at_startup:
             self._delete_notifications_at_startup()
 
-        self.router = Router(self.api)
+        self.router = Router(self.api, self.logger)
 
     def run_forever(self) -> Optional[NoReturn]:
+        self.api.session.headers["Connection"] = "keep-alive"
+
+        self.logger.log(
+            logging.INFO, "Started receiving incoming notifications."
+        )
+
         while True:
             try:
                 response = self.api.receiving.receiveNotification()
-
-                self.__validate_response(response)
 
                 if not response.data:
                     continue
@@ -38,18 +75,20 @@ class Bot:
 
                 self.router.route_event(response["body"])
 
-                self.__validate_response(
-                    self.api.receiving.deleteNotification(
-                        response["receiptId"]
-                    )
-                )
+                self.api.receiving.deleteNotification(response["receiptId"])
             except KeyboardInterrupt:
                 break
 
-    def _update_settings(self) -> Optional[NoReturn]:
-        settings = self.api.account.getSettings()
+        self.api.session.headers["Connection"] = "close"
 
-        self.__validate_response(settings)
+        self.logger.log(
+            logging.INFO, "Stopped receiving incoming notifications."
+        )
+
+    def _update_settings(self) -> Optional[NoReturn]:
+        self.logger.log(logging.DEBUG, "Checking current instance settings.")
+
+        settings = self.api.account.getSettings()
 
         response = settings.data
 
@@ -61,48 +100,61 @@ class Bot:
                 and outgoing_message_webhook == "no"
                 and outgoing_api_message_webhook == "no"
         ):
-            self.__validate_response(
-                self.api.account.setSettings({
-                    "incomingWebhook": "yes",
-                    "outgoingMessageWebhook": "yes",
-                    "outgoingAPIMessageWebhook": "yes"
-                })
+            self.logger.log(
+                logging.INFO, (
+                    "All message notifications are disabled. "
+                    "Enabling incoming and outgoing notifications. "
+                    "Settings will be applied within 5 minutes."
+                )
             )
 
+            self.api.account.setSettings({
+                "incomingWebhook": "yes",
+                "outgoingMessageWebhook": "yes",
+                "outgoingAPIMessageWebhook": "yes"
+            })
+
     def _delete_notifications_at_startup(self) -> Optional[NoReturn]:
+        self.api.session.headers["Connection"] = "keep-alive"
+
+        self.logger.log(
+            logging.DEBUG, "Started deleting old incoming notifications."
+        )
+
         while True:
             response = self.api.receiving.receiveNotification()
-
-            self.__validate_response(response)
 
             if not response.data:
                 break
 
-            self.__validate_response(
-                self.api.receiving.deleteNotification(
-                    response.data["receiptId"]
-                )
-            )
+            self.api.receiving.deleteNotification(response.data["receiptId"])
 
-    @staticmethod
-    def __validate_response(response: Response) -> Optional[NoReturn]:
-        if response.code != 200:
-            if response.error:
-                raise GreenAPIError(response.error)
-            raise GreenAPIError(
-                f"GreenAPI error occurred with status code {response.code}"
-            )
+        self.api.session.headers["Connection"] = "close"
 
+        self.logger.log(
+            logging.DEBUG, "Stopped deleting old incoming notifications."
+        )
 
-class GreenAPI(GreenApi):
-    pass
+        self.logger.log(logging.INFO, "Deleted old incoming notifications.")
+
+    def __prepare_logger(self) -> None:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            (
+                "%(asctime)s:%(name)s:"
+                "%(levelname)s:%(message)s"
+            ), datefmt="%Y-%m-%d %H:%M:%S"
+        ))
+
+        self.logger.addHandler(handler)
+
+        if not self.bot_debug_mode:
+            self.logger.setLevel(logging.INFO)
+        else:
+            self.logger.setLevel(logging.DEBUG)
 
 
 class GreenAPIBot(Bot):
-    pass
-
-
-class GreenAPIError(Exception):
     pass
 
 

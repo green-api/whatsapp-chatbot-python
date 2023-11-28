@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable, List, TYPE_CHECKING
 
@@ -39,10 +40,30 @@ class Observer(AbstractObserver):
         self.handlers.append(Handler(handler, **filters))
 
     def propagate_event(self) -> None:
+        if not self.handlers:
+            self.router.logger.log(
+                logging.DEBUG, (
+                    "Skipping event because there are no subscribers."
+                )
+            )
+
+            return None
+
         for handler in self.handlers:
             response = handler.execute_handler(self)
             if response:
-                break
+                self.router.logger.log(
+                    logging.DEBUG, "Event has been successfully handled."
+                )
+
+                return None
+
+        self.router.logger.log(
+            logging.DEBUG, (
+                "Event has not been handled "
+                "because all handlers do not match filters."
+            )
+        )
 
     def __call__(self, **filters: Any) -> Callable[[HandlerType], HandlerType]:
         def wrapper(handler: HandlerType) -> HandlerType:

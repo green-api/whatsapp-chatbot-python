@@ -45,6 +45,24 @@ bot = GreenAPIBot(
 )
 ```
 
+### Как включить режим отладки
+
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    bot_debug_mode=True
+)
+```
+
+Также можно включить режим отладки API:
+
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    debug_mode=True, bot_debug_mode=True
+)
+```
+
 ### Как настроить инстанс
 
 Чтобы начать получать входящие уведомления, нужно настроить инстанс. Открываем страницу личного кабинета
@@ -313,6 +331,50 @@ def password_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+### Часто задаваемые вопросы
+
+- Как вызвать методы API?
+
+```
+bot.api.account.getSettings()
+```
+
+Или
+
+```
+notification.api.account.getSettings()
+```
+
+- Как отключить вызов ошибок?
+
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    raise_errors=False
+)
+```
+
+- Как подписаться только на текстовые сообщения?
+
+Нужно сначала импортировать нужные константы:
+
+```
+from whatsapp_chatbot_python.filters import TEXT_TYPES
+```
+
+Затем добавить этот фильтр: `type_message=TEXT_TYPES`.
+
+- Как получить текст сообщения и ID отправителя?
+
+Эти данные есть в объекте уведомления (`notification`):
+
+```
+@bot.router.message()
+def message_handler(notification: Notification) -> None:
+    print(notification.sender)
+    print(notification.message_text)
+```
+
 ### Пример бота
 
 В качестве примера был создан бот для поддержки GREEN API. Список команд:
@@ -327,7 +389,7 @@ bot.run_forever()
 Чтобы отправить место (локацию), нужно использовать метод `sending.sendLocation` из `notification.api`.
 Чтобы отправить сообщение с файлом, нужно использовать метод `notification.answer_with_file`.
 
-В этом примере бот отвечает только на комманды из списка выше.
+В этом примере бот отвечает только на команды из списка выше.
 
 Ссылка на пример: [full.py](../examples/full.py).
 

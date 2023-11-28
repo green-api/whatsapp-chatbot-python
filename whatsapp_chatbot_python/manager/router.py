@@ -1,3 +1,5 @@
+import json
+import logging
 from typing import Dict, TYPE_CHECKING
 
 from .observer import AbstractObserver, ButtonObserver, Observer
@@ -7,8 +9,9 @@ if TYPE_CHECKING:
 
 
 class Router:
-    def __init__(self, api: "GreenAPI"):
+    def __init__(self, api: "GreenAPI", logger: logging.Logger):
         self.api = api
+        self.logger = logger
 
         self.message: AbstractObserver = Observer(self)
         self.outgoing_message: AbstractObserver = Observer(self)
@@ -29,6 +32,14 @@ class Router:
 
         observer = self.observers.get(type_webhook)
         if observer:
+            data = json.dumps(event, ensure_ascii=False, indent=4)
+
+            self.logger.log(
+                logging.DEBUG, (
+                    f"Routing {type_webhook} event with data: {data}"
+                )
+            )
+
             observer.update_event(event)
 
 

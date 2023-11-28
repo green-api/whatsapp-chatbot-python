@@ -46,6 +46,24 @@ bot = GreenAPIBot(
 )
 ```
 
+### How to enable debug mode
+
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    bot_debug_mode=True
+)
+```
+
+You can also enable API debug mode:
+
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    debug_mode=True, bot_debug_mode=True
+)
+```
+
 ### How to set up an instance
 
 To start receiving incoming notifications, you need to set up an instance. Open the personal cabinet page at
@@ -312,6 +330,50 @@ def password_handler(notification: Notification) -> None:
 
 
 bot.run_forever()
+```
+
+### FAQ
+
+- How to call API methods?
+
+```
+bot.api.account.getSettings()
+```
+
+Or
+
+```
+notification.api.account.getSettings()
+```
+
+- How do I disable error raising?
+
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    raise_errors=False
+)
+```
+
+- How do I subscribe only to text messages?
+
+You need to import the required constants first:
+
+```
+from whatsapp_chatbot_python.filters import TEXT_TYPES
+```
+
+Then add this filter: `type_message=TEXT_TYPES`.
+
+- How do I get the message text and sender ID?
+
+This data is in the notification object (`notification`):
+
+```
+@bot.router.message()
+def message_handler(notification: Notification) -> None:
+    print(notification.sender)
+    print(notification.message_text)
 ```
 
 ### Example of a bot
