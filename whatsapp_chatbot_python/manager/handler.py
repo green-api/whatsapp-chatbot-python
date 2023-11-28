@@ -1,3 +1,5 @@
+import json
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
@@ -140,11 +142,26 @@ class Handler(AbstractHandler):
             observer.event, observer.router.api, observer.state_manager
         )
 
+        filters = json.dumps(self.filters, ensure_ascii=False)
+
+        observer.router.logger.log(
+            logging.DEBUG, f"Checking event by filters: {filters}"
+        )
+
         response = self.check_event(notification)
         if response:
+            observer.router.logger.log(
+                logging.DEBUG, "Event matches filters. Handling event."
+            )
+
             self.handler(notification)
 
             return True
+
+        observer.router.logger.log(
+            logging.DEBUG, "Event does not match filters."
+        )
+
         return False
 
 
