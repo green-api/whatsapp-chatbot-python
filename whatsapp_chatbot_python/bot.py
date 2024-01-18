@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import NoReturn, Optional
 
 from whatsapp_api_client_python.API import GreenAPI, GreenAPIError
@@ -78,6 +79,10 @@ class Bot:
                 self.api.receiving.deleteNotification(response["receiptId"])
             except KeyboardInterrupt:
                 break
+            except Exception as e:
+                self.logger.log(logging.ERROR, f"An unexpected error occurred: {e}")
+                time.sleep(5)
+                continue
 
         self.api.session.headers["Connection"] = "close"
 
