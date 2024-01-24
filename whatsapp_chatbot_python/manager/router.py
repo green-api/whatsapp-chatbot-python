@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Dict, TYPE_CHECKING
 
-from .observer import AbstractObserver, ButtonObserver, Observer
+from .observer import AbstractObserver, ButtonObserver, PollObserver, Observer
 
 if TYPE_CHECKING:
     from ..bot import GreenAPI
@@ -19,6 +19,8 @@ class Router:
         self.outgoing_message_status: AbstractObserver = Observer(self)
 
         self.buttons: AbstractObserver = ButtonObserver(self)
+
+        self.polls: AbstractObserver = PollObserver(self)
 
         self.observers: Dict[str, AbstractObserver] = {
             "incomingMessageReceived": self.message,
@@ -41,6 +43,5 @@ class Router:
             )
 
             observer.update_event(event)
-
 
 __all__ = ["Router"]

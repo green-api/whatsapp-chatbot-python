@@ -88,5 +88,17 @@ class ButtonObserver(Observer):
 
         self.router.message.add_handler(handler, **filters)
 
+class PollObserver(Observer):
+    def add_handler(self, handler: HandlerType, **filters: Any) -> None:
+        message_types = [
+            "pollUpdateMessage"
+        ]
 
-__all__ = ["AbstractObserver", "ButtonObserver", "Observer"]
+        message_type = filters.get("type_message")
+        if message_type not in message_types:
+            filters["type_message"] = message_types
+
+        self.router.message.add_handler(handler, **filters)
+
+
+__all__ = ["AbstractObserver", "ButtonObserver", "PollObserver", "Observer"]

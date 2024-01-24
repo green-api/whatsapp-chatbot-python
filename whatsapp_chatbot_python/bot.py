@@ -68,7 +68,7 @@ class Bot:
         while True:
             try:
                 response = self.api.receiving.receiveNotification()
-
+                
                 if not response.data:
                     continue
                 response = response.data
