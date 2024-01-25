@@ -1,10 +1,10 @@
 from whatsapp_chatbot_python import GreenAPIBot, Notification
 
 bot = GreenAPIBot(
-    "7103888795", "bf18f7bef8534503bc3693713b47634dec26594ce2f146c9b9"
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345"
 )
 
-@bot.router.outgoing_message(text_message="message")
+@bot.router.message(text_message="message")
 def send_poll(notification: Notification) -> None:
     notification.api.sending.sendPoll(
         chatId=notification.chat,
@@ -18,7 +18,7 @@ def send_poll(notification: Notification) -> None:
 
 @bot.router.polls()
 def polls_handler(notification: Notification) -> None:
-    chatId = notification.event["senderData"]["chatId"]
+    chatId = notification.chat
     vote_data = notification.event["messageData"]["pollMessageData"]["votes"]
     sender_vote = None
 
