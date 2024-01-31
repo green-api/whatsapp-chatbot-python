@@ -8,7 +8,7 @@ bot = GreenAPIBot(
 def send_poll(notification: Notification) -> None:
     notification.api.sending.sendPoll(
         chatId=notification.chat,
-        message=f'A or B?',
+        message='A or B?',
         options=[
             {"optionName": "A"},
             {"optionName": "B"},
