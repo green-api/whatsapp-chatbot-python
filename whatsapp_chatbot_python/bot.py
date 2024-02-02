@@ -93,34 +93,22 @@ class Bot:
         current_settings = settings.data
         
         expected_settings = {
-            "countryInstance": "",
-	        "typeAccount": "",
 	        "webhookUrl": "",
 	        "webhookUrlToken": "",
 	        "delaySendMessagesMilliseconds": 0,
 	        "markIncomingMessagesReaded": "yes",
 	        "markIncomingMessagesReadedOnReply": "no",
-	        "sharedSession": "no",
-	        "proxyInstance": "system proxy",
 	        "outgoingWebhook": "yes",
 	        "outgoingMessageWebhook": "yes",
 	        "outgoingAPIMessageWebhook": "yes",
 	        "incomingWebhook": "yes",
-	        "deviceWebhook": "no",
-	        "statusInstanceWebhook": "no",
-	        "stateWebhook": "no",
-	        "enableMessagesHistory": "no",
-	        "keepOnlineStatus": "no",
 	        "pollMessageWebhook": "yes",
-	        "incomingBlockWebhook": "no",
-	        "incomingCallWebhook": "no"
         }
 
         if not all(current_settings.get(key) == value for key, value in expected_settings.items()):
-            update_settings_response = self.api.account.setSettings(expected_settings).data
+            self.api.account.setSettings(expected_settings)
             print("We will set settings to following expected_settings. It may take up to 5 minutes, please be patient.")
             print(expected_settings)
-            print({f'Set settings result: {update_settings_response}'})
         else:
             print("Settings are already as expected.")
 
