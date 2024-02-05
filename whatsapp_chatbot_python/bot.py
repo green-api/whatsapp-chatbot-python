@@ -79,9 +79,13 @@ class Bot:
                 self.api.receiving.deleteNotification(response["receiptId"])
             except KeyboardInterrupt:
                 break
-            except Exception as e:
-                self.logger.log(logging.ERROR, f"An unexpected error occurred: {e}")
-                time.sleep(5)
+            except Exception as error:
+                if self.raise_errors:
+                    raise GreenAPIBotError(error)
+                self.logger.log(logging.ERROR, error)
+
+                time.sleep(5.0)
+
                 continue
 
         self.api.session.headers["Connection"] = "close"
@@ -163,4 +167,14 @@ class GreenAPIBot(Bot):
     pass
 
 
-__all__ = ["Bot", "GreenAPI", "GreenAPIBot", "GreenAPIError"]
+class GreenAPIBotError(Exception):
+    pass
+
+
+__all__ = [
+    "Bot",
+    "GreenAPI",
+    "GreenAPIBot",
+    "GreenAPIError",
+    "GreenAPIBotError"
+]
