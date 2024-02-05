@@ -93,7 +93,6 @@ class Bot:
         current_settings = settings.data
 
         expected_settings = {
-            "delaySendMessagesMilliseconds": 0,
             "markIncomingMessagesReaded": "yes",
             "markIncomingMessagesReadedOnReply": "no",
             "outgoingWebhook": "yes",
@@ -108,10 +107,10 @@ class Bot:
                 
         if not all(current_settings.get(key) == value for key, value in expected_settings.items()):
             self.api.account.setSettings(expected_settings)
-            print("We will set settings to following expected_settings. It may take up to 5 minutes, please be patient.")
-            print(expected_settings)
+            self.logger.log(logging.DEBUG, "We will set settings to following expected_settings. It may take up to 5 minutes, please be patient.")
+            self.logger.log(logging.DEBUG, expected_settings)
         else:
-            print("Settings are already as expected.")
+            self.logger.log(logging.DEBUG, "Settings are already as expected.")
 
     def _delete_notifications_at_startup(self) -> Optional[NoReturn]:
         self.api.session.headers["Connection"] = "keep-alive"
