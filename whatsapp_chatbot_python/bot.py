@@ -12,7 +12,7 @@ class Bot:
             id_instance: str,
             api_token_instance: str,
             debug_mode: bool = False,
-            raise_errors: bool = True,
+            raise_errors: bool = False,
             host: Optional[str] = None,
             media: Optional[str] = None,
             bot_debug_mode: bool = False,
