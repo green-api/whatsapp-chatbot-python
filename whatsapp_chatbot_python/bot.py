@@ -91,20 +91,21 @@ class Bot:
         settings = self.api.account.getSettings()
 
         current_settings = settings.data
-        
+
         expected_settings = {
-	        "webhookUrl": "",
-	        "webhookUrlToken": "",
-	        "delaySendMessagesMilliseconds": 0,
-	        "markIncomingMessagesReaded": "yes",
-	        "markIncomingMessagesReadedOnReply": "no",
-	        "outgoingWebhook": "yes",
-	        "outgoingMessageWebhook": "yes",
-	        "outgoingAPIMessageWebhook": "yes",
-	        "incomingWebhook": "yes",
-	        "pollMessageWebhook": "yes",
+            "delaySendMessagesMilliseconds": 0,
+            "markIncomingMessagesReaded": "yes",
+            "markIncomingMessagesReadedOnReply": "no",
+            "outgoingWebhook": "yes",
+            "outgoingMessageWebhook": "yes",
+            "incomingWebhook": "yes",
+            "pollMessageWebhook": "yes",
         }
 
+        if any(current_settings[field] == "yes" for field in ["outgoingWebhook", "outgoingMessageWebhook", "incomingWebhook"]):
+            for field in ["outgoingWebhook", "outgoingMessageWebhook", "incomingWebhook"]:
+                expected_settings[field] = current_settings[field]
+                
         if not all(current_settings.get(key) == value for key, value in expected_settings.items()):
             self.api.account.setSettings(expected_settings)
             print("We will set settings to following expected_settings. It may take up to 5 minutes, please be patient.")
