@@ -42,9 +42,11 @@ Before launching the bot, you should enable incoming notifications in instance s
 
 
 ```json
-"incomingWebhook": "yes",
-"outgoingMessageWebhook": "yes",
-"outgoingAPIMessageWebhook": "yes",
+{
+  "incomingWebhook": "yes",
+  "outgoingMessageWebhook": "yes",
+  "outgoingAPIMessageWebhook": "yes"
+}
 ```
 
 ## Examples
