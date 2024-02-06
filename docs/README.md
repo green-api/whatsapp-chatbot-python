@@ -121,9 +121,9 @@ bot.run_forever()
 
 ### Получение уведомлений через HTTP API
 
-Получать входящие уведомления (сообщения, статусы) можно через HTTP API запросы по аналогии, как реализованы остальные методы Green API. При этом гарантируется хронологический порядок следования уведомлений в той последовательности, в которой они были получены FIFO. Все входящие уведомления сохраняются в очереди и ожидают своего получения в течение 24 часов.
+Эта библиотека получает входящие веб-хуки (сообщения, статусы) через HTTP API-запросы в порядке, аналогичном реализации других методов Green API. Хронологический порядок веб-хуков гарантированно соответствует последовательности, в которой они были получены (FIFO). Все входящие веб-крючки хранятся в очереди и ожидаются к получению в течение 24 часов.
 
-Для получения входящих уведомлений требуется выполнить последовательно вызов двух методов <a href="https://green-api.com/docs/api/receiving/technology-http-api/ReceiveNotification/">ReceiveNotification</a> и <a href="https://green-api.com/docs/api/receiving/technology-http-api/DeleteNotification/">DeleteNotification</a>. Метод ReceiveNotification выполняет получение входящего уведомления. Метод DeleteNotification подтверждает успешное получение и обработку уведомления. Подробнее о методах смотрите в соответствующих разделах ReceiveNotification и DeleteNotification.
+Для получения входящих веб-крючков эта библиотека последовательно вызывает два метода: [ReceiveNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/ReceiveNotification/) и [DeleteNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/DeleteNotofication/). Метод `ReceiveNotification` получает входящий вебхук, а метод `DeleteNotification` подтверждает успешное получение и обработку вебхука. Подробнее об этих методах читайте в соответствующих разделах [ReceiveNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/ReceiveNotification/) и [DeleteNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/DeleteNotofication/).
 
 ### Как фильтровать входящие сообщения
 
