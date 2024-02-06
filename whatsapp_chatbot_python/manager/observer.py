@@ -89,4 +89,34 @@ class ButtonObserver(Observer):
         self.router.message.add_handler(handler, **filters)
 
 
-__all__ = ["AbstractObserver", "ButtonObserver", "Observer"]
+class PollObserver(Observer):
+    def add_handler(self, handler: HandlerType, **filters: Any) -> None:
+        filters["type_message"] = "pollMessage"
+
+        self.router.message.add_handler(handler, **filters)
+
+
+class PollUpdateObserver(Observer):
+    def add_handler(self, handler: HandlerType, **filters: Any) -> None:
+        filters["type_message"] = "pollUpdateMessage"
+
+        self.router.message.add_handler(handler, **filters)
+
+    def add_handler_with_stanza(
+            self, handler: HandlerType, stanza: str, **filters: Any
+    ) -> None:
+        filters.update({
+            "stanza": stanza,
+            "type_message": "pollUpdateMessage"
+        })
+
+        self.router.message.add_handler(handler, **filters)
+
+
+__all__ = [
+    "AbstractObserver",
+    "ButtonObserver",
+    "Observer",
+    "PollObserver",
+    "PollUpdateObserver"
+]

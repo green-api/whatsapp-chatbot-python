@@ -5,6 +5,8 @@ from typing import Dict, List, Optional, TYPE_CHECKING, Type, Union
 if TYPE_CHECKING:
     from .manager.handler import Notification
 
+TEXT_TYPES = ["textMessage", "extendedTextMessage", "quotedMessage"]
+
 
 class AbstractFilter(ABC):
     @abstractmethod
@@ -132,6 +134,22 @@ class StateFilter(AbstractFilter):
         return False
 
 
+class StanzaFilter(AbstractFilter):
+    def __init__(self, stanza: Optional[str]):
+        self.stanza = stanza
+
+    def check_event(self, notification: "Notification") -> bool:
+        message_data = notification.event["messageData"]
+
+        type_message = message_data["typeMessage"]
+        if type_message == "pollUpdateMessage":
+            stanza = message_data["pollMessageData"]["stanzaId"]
+            if stanza == self.stanza:
+                return True
+
+        return False
+
+
 filters: Dict[str, Type[AbstractFilter]] = {
     "from_chat": ChatIDFilter,
     "from_sender": SenderFilter,
@@ -139,12 +157,13 @@ filters: Dict[str, Type[AbstractFilter]] = {
     "text_message": TextMessageFilter,
     "regexp": RegExpFilter,
     "command": CommandFilter,
-    "state": StateFilter
+    "state": StateFilter,
+    "stanza": StanzaFilter
 }
 
-TEXT_TYPES = ["textMessage", "extendedTextMessage", "quotedMessage"]
-
 __all__ = [
+    "TEXT_TYPES",
+
     "AbstractFilter",
     "ChatIDFilter",
     "SenderFilter",
@@ -153,6 +172,7 @@ __all__ = [
     "RegExpFilter",
     "CommandFilter",
     "StateFilter",
-    "filters",
-    "TEXT_TYPES"
+    "StanzaFilter",
+
+    "filters"
 ]
