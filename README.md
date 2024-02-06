@@ -38,7 +38,8 @@ from whatsapp_chatbot_python import GreenAPIBot, Notification
 
 ## Setup
 
-Before launching the bot you should enable incoming notifications in instance settings by using <a href="https://green-api.com/en/docs/api/account/SetSettings/">SetSettings method</a>.
+Before launching the bot, you should enable incoming notifications in instance settings by using [SetSettings method](https://green-api.com/en/docs/api/account/SetSettings/).
+
 
 ```json
 "incomingWebhook": "yes",
