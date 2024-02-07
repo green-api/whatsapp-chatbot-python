@@ -10,7 +10,7 @@ def message_handler(notification: Notification) -> None:
     sender_data = notification.event["senderData"]
     sender_name = sender_data["senderName"]
 
-    response = notification.answer_with_poll(
+    notification.answer_with_poll(
         f"Hello, {sender_name}. Here's what I can do:\n\n",
         [
             {"optionName": "1. Report a problem"},
@@ -20,13 +20,8 @@ def message_handler(notification: Notification) -> None:
         ]
     )
 
-    stanza = response.data["idMessage"]
 
-    bot.router.poll_update_message.add_handler_with_stanza(
-        start_poll_handler, stanza
-    )
-
-
+@bot.router.poll_update_message()
 def start_poll_handler(notification: Notification) -> None:
     votes = notification.event["messageData"]["pollMessageData"]["votes"]
     for vote_data in votes:
