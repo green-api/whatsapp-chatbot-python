@@ -131,6 +131,12 @@ def message_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+### Получение уведомлений через HTTP API
+
+Эта библиотека получает входящие веб-хуки (сообщения, статусы) через HTTP API-запросы в порядке, аналогичном реализации других методов Green API. Хронологический порядок веб-хуков гарантированно соответствует последовательности, в которой они были получены (FIFO). Все входящие веб-крючки хранятся в очереди и ожидаются к получению в течение 24 часов.
+
+Для получения входящих веб-крючков эта библиотека последовательно вызывает два метода: [ReceiveNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/ReceiveNotification/) и [DeleteNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/DeleteNotofication/). Метод `ReceiveNotification` получает входящий вебхук, а метод `DeleteNotification` подтверждает успешное получение и обработку вебхука. Подробнее об этих методах читайте в соответствующих разделах [ReceiveNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/ReceiveNotification/) и [DeleteNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/DeleteNotofication/).
+
 ### Как фильтровать входящие сообщения
 
 Сообщения можно фильтровать по чату, по отправителю, по типу и тексту сообщения. Для фильтров чата, отправителя и типа

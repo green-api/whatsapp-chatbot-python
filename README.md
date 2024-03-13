@@ -134,6 +134,12 @@ def message_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+### Receive webhooks via HTTP API
+
+This library receives incoming webhooks (messages, statuses) via HTTP API requests in a manner similar to the implementation of other Green API methods. The chronological order of the webhooks is guaranteed to follow the sequence in which they were received (FIFO). All incoming webhooks are stored in the queue and are expected to be received within 24 hours.
+
+To obtain incoming webhooks, this library sequentially calls two methods: [ReceiveNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/ReceiveNotification/) and [DeleteNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/DeleteNotofication/). The `ReceiveNotification` method receives an incoming webhook, while the `DeleteNotification` method confirms the successful receipt and processing of the webhook. For more information about these methods, refer to the respective sections on [ReceiveNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/ReceiveNotification/) and [DeleteNotification](https://green-api.com/en/docs/api/receiving/technology-http-api/DeleteNotofication/).
+
 ### How to filter incoming messages
 
 Messages can be filtered by chat, sender, message type, and text. To filter chat, sender, and message type, you can use
