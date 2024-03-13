@@ -36,6 +36,19 @@ python -m pip install whatsapp-chatbot-python
 from whatsapp_chatbot_python import GreenAPIBot, Notification
 ```
 
+## Setup
+
+Before launching the bot, you should enable incoming notifications in instance settings by using [SetSettings method](https://green-api.com/en/docs/api/account/SetSettings/).
+
+
+```json
+{
+  "incomingWebhook": "yes",
+  "outgoingMessageWebhook": "yes",
+  "outgoingAPIMessageWebhook": "yes"
+}
+```
+
 ## Examples
 
 ### How to initialize an object

@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import NoReturn, Optional
 
 from whatsapp_api_client_python.API import GreenAPI, GreenAPIError
@@ -12,7 +13,7 @@ class Bot:
             id_instance: str,
             api_token_instance: str,
             debug_mode: bool = False,
-            raise_errors: bool = True,
+            raise_errors: bool = False,
             host: Optional[str] = None,
             media: Optional[str] = None,
             bot_debug_mode: bool = False,
@@ -78,6 +79,14 @@ class Bot:
                 self.api.receiving.deleteNotification(response["receiptId"])
             except KeyboardInterrupt:
                 break
+            except Exception as error:
+                if self.raise_errors:
+                    raise GreenAPIBotError(error)
+                self.logger.log(logging.ERROR, error)
+
+                time.sleep(5.0)
+
+                continue
 
         self.api.session.headers["Connection"] = "close"
 
@@ -158,4 +167,14 @@ class GreenAPIBot(Bot):
     pass
 
 
-__all__ = ["Bot", "GreenAPI", "GreenAPIBot", "GreenAPIError"]
+class GreenAPIBotError(Exception):
+    pass
+
+
+__all__ = [
+    "Bot",
+    "GreenAPI",
+    "GreenAPIBot",
+    "GreenAPIError",
+    "GreenAPIBotError"
+]

@@ -104,6 +104,19 @@ class Notification:
                 chat, file, file_name, caption, quoted_message_id
             )
 
+    def answer_with_poll(
+            self,
+            message: str,
+            options: List[Dict[str, str]],
+            multiple_answers: Optional[bool] = None,
+            quoted_message_id: Optional[str] = None
+    ) -> Optional[Response]:
+        chat = self.get_chat()
+        if chat:
+            return self.api.sending.sendPoll(
+                chat, message, options, multiple_answers, quoted_message_id
+            )
+
 
 HandlerType = Callable[[Notification], Any]
 
