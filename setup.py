@@ -5,7 +5,7 @@ with open("README.md", encoding="UTF-8") as file:
 
 setup(
     name="whatsapp-chatbot-python",
-    version="0.9.0",
+    version="0.9.1",
     description=(
         "This library helps you easily create"
         " a Python chatbot with WhatsApp API."
@@ -43,6 +43,6 @@ setup(
         "Creative Commons Attribution-NoDerivatives 4.0 International"
         " (CC BY-ND 4.0)"
     ),
-    install_requires=["whatsapp-api-client-python==0.0.44"],
+    install_requires=["whatsapp-api-client-python==0.0.45"],
     python_requires=">=3.7"
 )
