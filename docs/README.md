@@ -108,6 +108,25 @@ def message_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+По умолчанию бот будет получать уведомления с помощью bot.api.receiving.receiveNotification(), но также можно установить url webhook для получения уведомлений, предоставив GreenAPIBot данные webhook_data:
+
+Ссылка на пример: [webhook.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/webhook.py).
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    webhook_data = {
+        "port": 4567,
+        "host": None,
+        "webhook_url": "https://your-domain-that-forwards-webhooks-to-bot.com"
+    },
+    bot_debug_mode=True,
+    debug_mode=True
+)
+```
+
+
+Переведено с помощью DeepL.com (бесплатная версия)
+
 ### Как получать другие уведомления и обрабатывать тело уведомления
 
 Получать можно не только входящие сообщения, но и исходящие. Также можно получать статус отправленного сообщения.

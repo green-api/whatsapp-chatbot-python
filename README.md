@@ -110,6 +110,22 @@ def message_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+By default bot will receive notifications using bot.api.receiving.receiveNotification(), but it is also possible to set webhook url to receive notifications by providing GreenAPIBot with webhook_data:
+
+Link to example: [webhook.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/webhook.py).
+```
+bot = GreenAPIBot(
+    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    webhook_data = {
+        "port": 4567,
+        "host": None,
+        "webhook_url": "https://your-domain-that-forwards-webhooks-to-bot.com"
+    },
+    bot_debug_mode=True,
+    debug_mode=True
+)
+```
+
 ### How to receive other notifications and handle the notification body
 
 You can receive not only incoming messages but also outgoing messages. You can also get the status of the sent message.
