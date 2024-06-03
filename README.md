@@ -461,6 +461,39 @@ def call_support_operator_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+### Whebhook-mode notifications receiving
+
+By default bot read notifications using long polling method. Receiving notifications is also possible using webhooks:
+
+```python
+from whatsapp_chatbot_python import GreenAPIBot, Notification
+
+bot = GreenAPIBot(
+    "1101000001",
+    "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    #  Set `webhook_mode` to True (default: False)
+    webhook_mode=True,
+    #  Set your host for webhook server (default: "0.0.0.0")
+    webhook_host = "0.0.0.0",
+    #  Set your port for webhook server (default: 8080)
+    webhook_port = 8080,
+    #  Set your auth header value (:str) from API console
+    #  If it is None, auth header will not affect on data receiving
+    webhook_auth_header = None,
+)
+
+
+@bot.router.outgoing_message()
+def outgoint_message_handler(notification: Notification) -> None:
+    print("Outgoint message received")
+
+if __name__ == "__main__":
+    bot.run_forever()
+
+```
+For this mode to work correctly, you must specify the correct Webhook Url in the instance settings. Based on [whatsapp-api-webhook-server-python-v2](https://github.com/green-api/whatsapp-api-webhook-server-python-v2) (`python >= 3.8` required)
+
+
 ## Service methods documentation
 
 [Service methods documentation](https://green-api.com/en/docs/api/)
