@@ -89,7 +89,6 @@ class Bot:
         self.__init_router()
 
         if self.webhook_mode:
-            from whatsapp_api_webhook_server_python_v2 import GreenAPIWebhookServer
 
             self.__init_webhook_handler()
             self.__init_webhook_server()
@@ -222,6 +221,8 @@ class Bot:
         self.logger.debug("Webhook handler OK")
 
     def __init_webhook_server(self) -> None:
+
+        from whatsapp_api_webhook_server_python_v2 import GreenAPIWebhookServer
 
         self.logger.debug("GreenAPI webhook server initialization...")
         self._webhook_server = GreenAPIWebhookServer(

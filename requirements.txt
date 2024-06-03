@@ -1,2 +1,2 @@
 whatsapp-api-client-python==0.0.45
-whatsapp-api-webhook-server-python-v2==0.0.1
+whatsapp-api-webhook-server-python-v2==0.1.0
