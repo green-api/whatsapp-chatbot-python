@@ -7,8 +7,7 @@ setup(
     name="whatsapp-chatbot-python",
     version="0.9.1",
     description=(
-        "This library helps you easily create"
-        " a Python chatbot with WhatsApp API."
+        "This library helps you easily create a Python chatbot with WhatsApp API."
     ),
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -37,12 +36,14 @@ setup(
         "Topic :: Communications :: Chat",
         "Topic :: Software Development",
         "Topic :: Software Development :: Libraries",
-        "Topic :: Software Development :: Libraries :: Application Frameworks"
+        "Topic :: Software Development :: Libraries :: Application Frameworks",
     ],
     license=(
-        "Creative Commons Attribution-NoDerivatives 4.0 International"
-        " (CC BY-ND 4.0)"
+        "Creative Commons Attribution-NoDerivatives 4.0 International" " (CC BY-ND 4.0)"
     ),
-    install_requires=["whatsapp-api-client-python==0.0.45"],
-    python_requires=">=3.7"
+    install_requires=[
+        "whatsapp-api-client-python==0.0.45",
+        "whatsapp-api-webhook-server-python-v2==0.1.0",
+    ],
+    python_requires=">=3.7",
 )

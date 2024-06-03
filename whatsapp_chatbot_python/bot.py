@@ -47,6 +47,9 @@ class Bot:
             -  `bot_debug_mode: bool` - (default: `False`)
             Debug mode (extended logging) for bot
 
+            - `settings: dict | None` - (default: `None`)
+            dict for updating instance settings if provided
+
             - `delete_notifications_at_startup: bool` - (default: `True`) Remove all
             notifications from notification queue on bot startup. If `bot_debug_mode`
             is `True` - this arg will be setted as `True` when bot object init
@@ -57,7 +60,7 @@ class Bot:
 
             - `webhook_host: str` - (default: `"0.0.0.0"`) Host for webhook server.
 
-            - `webhook_post: int` - (default: `8080`) Port for webhook server.
+            - `webhook_port: int` - (default: `8080`) Port for webhook server.
 
             - `webhook_auth_header: str | None` - (default: `None`) Check that the
             authorization header matches the specified value.

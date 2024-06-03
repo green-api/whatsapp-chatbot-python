@@ -459,6 +459,39 @@ def call_support_operator_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+### Получение уведомлений при помощи webhook
+
+По умолчанию бот читает уведомления, используя long polling метод. Получение уведомлений также возможно с помощью webhook-сервера:
+
+```python
+from whatsapp_chatbot_python import GreenAPIBot, Notification
+
+bot = GreenAPIBot(
+    "1101000001",
+    "d75b3a66374942c5b3c019c698abc2067e151558acbd412345",
+    #  Укажите значение `webhook_mode` равное True (False по-умолчанию)
+    webhook_mode = True,
+    #  Укажите хост вебхук-сервера ("0.0.0.0" по-умолчанию)
+    webhook_host = "0.0.0.0",
+    #  Укажите порт вебхук-сервера (8080 по-умолчанию)
+    webhook_port = 8080,
+    #  При необходимости, укажите заголовок авторизации (:str), который
+    #  установлен в консоли инстанса. Если указать None, то
+    #  заголовок авторизации не будет проверяться вебхук-сервером
+    webhook_auth_header = None,
+)
+
+
+@bot.router.outgoing_message()
+def outgoint_message_handler(notification: Notification) -> None:
+    print("Outgoint message received")
+
+if __name__ == "__main__":
+    bot.run_forever()
+
+```
+Для того, чтобы этот режим работал корректно, укажите корректный URL вебхук-севрера в настройках инстанса. В качестве вебхук-сервера используется [whatsapp-api-webhook-server-python-v2](https://github.com/green-api/whatsapp-api-webhook-server-python-v2) (`python >= 3.8`)
+
 ## Документация по методам сервиса
 
 [Документация по методам сервиса](https://green-api.com/docs/api/)

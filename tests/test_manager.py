@@ -8,9 +8,9 @@ event_example: dict = {
     "messageData": {
         "typeMessage": "textMessage",
         "textMessageData": {
-            "textMessage": "Hello"
-        }
-    }
+            "textMessage": "Hello",
+        },
+    },
 }
 
 
@@ -44,12 +44,12 @@ class ManagerTestCase(unittest.TestCase):
 
         self.assertEqual(len(bot.router.message.handlers), 2)
 
-    @patch("whatsapp_chatbot_python.bot.Bot._update_settings")
-    def create_bot(self, mock__update_settings: MagicMock) -> GreenAPIBot:
-        mock__update_settings.return_value = None
+    @patch("whatsapp_chatbot_python.bot.Bot._Bot__init_instance_settings")
+    def create_bot(self, mock__init_instance_settings: MagicMock) -> GreenAPIBot:
+        mock__init_instance_settings.return_value = None
 
         return GreenAPIBot("", "", delete_notifications_at_startup=False)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
