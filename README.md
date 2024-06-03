@@ -461,9 +461,9 @@ def call_support_operator_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
-### Whebhook-mode notifications receiving
+### Webhook-mode notifications receiving
 
-By default bot read notifications using long polling method. Receiving notifications is also possible using webhooks:
+By default bot read notifications using long polling method. Receiving notifications is also possible via webhooks:
 
 ```python
 from whatsapp_chatbot_python import GreenAPIBot, Notification
