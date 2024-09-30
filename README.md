@@ -217,7 +217,9 @@ def message_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
-### How to handle buttons
+### How to handle buttons (deprecated)
+
+The method is temporarily not working. When the method is called, a 403 error will be returned.
 
 To be notified when a button is pressed, you must use the `bot.router.buttons` object.
 
