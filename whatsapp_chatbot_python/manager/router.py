@@ -23,6 +23,7 @@ class Router:
         self.outgoing_message: AbstractObserver = Observer(self)
         self.outgoing_api_message: AbstractObserver = Observer(self)
         self.outgoing_message_status: AbstractObserver = Observer(self)
+        self.incoming_call: AbstractObserver = Observer(self)
 
         self.buttons: AbstractObserver = ButtonObserver(self)
 
@@ -33,7 +34,8 @@ class Router:
             "incomingMessageReceived": self.message,
             "outgoingMessageReceived": self.outgoing_message,
             "outgoingAPIMessageReceived": self.outgoing_api_message,
-            "outgoingMessageStatus": self.outgoing_message_status
+            "outgoingMessageStatus": self.outgoing_message_status,
+            "incomingCall": self.incoming_call
         }
 
     def route_event(self, event: dict) -> None:
