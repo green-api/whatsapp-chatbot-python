@@ -53,16 +53,33 @@ class Notification:
             return self.event["senderData"]["sender"]
 
     def get_message_text(self) -> Optional[str]:
-        message_data = self.event["messageData"]
+        type_webhook = self.event["typeWebhook"]
+        if type_webhook != "outgoingMessageStatus":
+            message_data = self.event["messageData"]
 
-        type_message = message_data["typeMessage"]
-        if type_message == "textMessage":
-            return message_data["textMessageData"]["textMessage"]
-        elif (
-                type_message == "extendedTextMessage"
-                or type_message == "quotedMessage"
-        ):
-            return message_data["extendedTextMessageData"]["text"]
+            type_message = message_data["typeMessage"]
+            if type_message == "textMessage":
+                return message_data["textMessageData"]["textMessage"]
+            elif (
+                    type_message == "extendedTextMessage"
+                    or type_message == "quotedMessage"
+            ):
+                return message_data["extendedTextMessageData"]["text"]
+
+    def get_id_message(self) -> Optional[str]:
+        id_message = self.event['idMessage']
+        return id_message
+
+    def get_status_message(self) -> Optional[str]:
+        type_webhook = self.event["typeWebhook"]
+        if type_webhook == "outgoingMessageStatus":
+            return self.event["status"]
+
+    def get_message_data(self) -> Optional[str]:
+        type_webhook = self.event["typeWebhook"]
+        if type_webhook != "outgoingMessageStatus":
+            message_data = self.event["messageData"]
+            return message_data
 
     def answer(
             self,

@@ -42,7 +42,7 @@ class Router:
         observer = self.observers.get(type_webhook)
         if observer:
             data = json.dumps(event, ensure_ascii=False, indent=4)
-
+         
             self.logger.log(
                 logging.DEBUG, (
                     f"Routing {type_webhook} event with data: {data}"

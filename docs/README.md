@@ -37,7 +37,7 @@ from whatsapp_chatbot_python import GreenAPIBot, Notification
 
 ## Настройки
 
-Перед запуском бота необходимо включить входящие уведомления в настройках экземпляра с помощью [метода SetSettings](https://green-api.com/en/docs/api/account/SetSettings/).
+Перед запуском бота необходимо удалить (при наличии) адрес отправки уведомлений (URL) из личного кабинета или выставив пустой webhookUrl с помощью [метода SetSettings](https://green-api.com/en/docs/api/account/SetSettings/). Следующие настройки будут включены ботом автоматически:
 
 ```json
 {
