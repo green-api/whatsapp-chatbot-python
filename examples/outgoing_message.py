@@ -6,7 +6,7 @@ bot = GreenAPIBot(
 
 # Handle message, which sent from this instance without API
 @bot.router.outgoing_message()
-def message_handler(notification: Notification) -> None:
+def message_handler_outgoing(notification: Notification) -> None:
     print("Outgoing Message: ", notification.get_id_message())
     print("Sender:", notification.get_sender())
     print("Chat:", notification.get_chat())
@@ -15,7 +15,7 @@ def message_handler(notification: Notification) -> None:
 
 # Handle message, which sent from this instance with API
 @bot.router.outgoing_api_message()
-def message_handler(notification: Notification) -> None:
+def message_handler_outgoing_api(notification: Notification) -> None:
     print("Outgoing Message from API: ", notification.get_id_message())
     print("Sender:", notification.get_sender())
     print("Chat:", notification.get_chat())
@@ -24,7 +24,7 @@ def message_handler(notification: Notification) -> None:
 
 # Handle status of any sent message from this instance (sent, delivired, read)
 @bot.router.outgoing_message_status()
-def message_handler(notification: Notification) -> None:
+def message_handler_outgoing_status(notification: Notification) -> None:
     print("Status of message:", notification.get_id_message(), "is", notification.get_status_message())
 
 bot.run_forever()
