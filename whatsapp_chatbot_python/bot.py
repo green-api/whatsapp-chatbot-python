@@ -1,6 +1,8 @@
+import json
 import logging
 import time
 from typing import NoReturn, Optional
+from requests import Response
 
 from whatsapp_api_client_python.API import GreenAPI, GreenAPIError
 
@@ -43,9 +45,14 @@ class Bot:
             self._update_settings()
         else:
             self.logger.log(logging.DEBUG, "Updating instance settings.")
-
-            self.api.account.setSettings(settings)
-
+            try:
+                response = self.api.account.setSettings(settings)
+                self.__handle_response(response)
+            except Exception as error:
+                if self.raise_errors:
+                    raise GreenAPIBotError(error)
+                self.logger.log(logging.ERROR, error)
+            
         if bot_debug_mode:
             if not delete_notifications_at_startup:
                 delete_notifications_at_startup = True
@@ -69,14 +76,15 @@ class Bot:
         while True:
             try:
                 response = self.api.receiving.receiveNotification()
-
+                self.__handle_response(response)
                 if not response.data:
                     continue
                 response = response.data
 
                 self.router.route_event(response["body"])
 
-                self.api.receiving.deleteNotification(response["receiptId"])
+                response = self.api.receiving.deleteNotification(response["receiptId"])
+                self.__handle_response(response)
             except KeyboardInterrupt:
                 break
             except Exception as error:
@@ -96,32 +104,38 @@ class Bot:
 
     def _update_settings(self) -> Optional[NoReturn]:
         self.logger.log(logging.DEBUG, "Checking current instance settings.")
+        try:
+            response = self.api.account.getSettings()
+            self.__handle_response(response)
 
-        settings = self.api.account.getSettings()
+            settings = response.data
 
-        response = settings.data
-
-        incoming_webhook = response["incomingWebhook"]
-        outgoing_message_webhook = response["outgoingMessageWebhook"]
-        outgoing_api_message_webhook = response["outgoingAPIMessageWebhook"]
-        if (
-                incoming_webhook == "no"
-                and outgoing_message_webhook == "no"
-                and outgoing_api_message_webhook == "no"
-        ):
-            self.logger.log(
-                logging.INFO, (
-                    "All message notifications are disabled. "
-                    "Enabling incoming and outgoing notifications. "
-                    "Settings will be applied within 5 minutes."
+            incoming_webhook = settings["incomingWebhook"]
+            outgoing_message_webhook = settings["outgoingMessageWebhook"]
+            outgoing_api_message_webhook = settings["outgoingAPIMessageWebhook"]
+            if (
+                    incoming_webhook == "no"
+                    and outgoing_message_webhook == "no"
+                    and outgoing_api_message_webhook == "no"
+            ):
+                self.logger.log(
+                    logging.INFO, (
+                        "All message notifications are disabled. "
+                        "Enabling incoming and outgoing notifications. "
+                        "Settings will be applied within 5 minutes."
+                    )
                 )
-            )
 
-            self.api.account.setSettings({
-                "incomingWebhook": "yes",
-                "outgoingMessageWebhook": "yes",
-                "outgoingAPIMessageWebhook": "yes"
-            })
+                response = self.api.account.setSettings({
+                    "incomingWebhook": "yes",
+                    "outgoingMessageWebhook": "yes",
+                    "outgoingAPIMessageWebhook": "yes"
+                })
+                self.__handle_response(response)
+        except Exception as error:
+                if self.raise_errors:
+                    raise GreenAPIBotError(error)
+                self.logger.log(logging.ERROR, error)
 
     def _delete_notifications_at_startup(self) -> Optional[NoReturn]:
         self.api.session.headers["Connection"] = "keep-alive"
@@ -132,11 +146,12 @@ class Bot:
 
         while True:
             response = self.api.receiving.receiveNotification()
-
+            self.__handle_response(response)
             if not response.data:
                 break
 
-            self.api.receiving.deleteNotification(response.data["receiptId"])
+            response = self.api.receiving.deleteNotification(response.data["receiptId"])
+            self.__handle_response(response)
 
         self.api.session.headers["Connection"] = "close"
 
@@ -162,6 +177,28 @@ class Bot:
         else:
             self.logger.setLevel(logging.DEBUG)
 
+    def __handle_response(self, response: Response) -> Optional[NoReturn]:
+        status_code = response.status_code
+        if status_code != 200 or self.debug_mode:
+            data = json.dumps(
+                json.loads(response.text), ensure_ascii=False, indent=4
+            )
+
+            if status_code != 200:
+                error_message = (
+                    f"Request was failed with status code: {status_code}."
+                    f" Data: {data}"
+                )
+
+                if self.raise_errors:
+                    raise GreenAPIError(error_message)
+                self.logger.log(logging.ERROR, error_message)
+
+                return None
+
+            self.logger.log(
+                logging.DEBUG, f"Request was successful with data: {data}"
+            )
 
 class GreenAPIBot(Bot):
     pass
