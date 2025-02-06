@@ -43,6 +43,6 @@ setup(
         "Creative Commons Attribution-NoDerivatives 4.0 International"
         " (CC BY-ND 4.0)"
     ),
-    install_requires=["whatsapp-api-client-python==0.0.47"],
+    install_requires=["whatsapp-api-client-python==0.0.49"],
     python_requires=">=3.7"
 )
