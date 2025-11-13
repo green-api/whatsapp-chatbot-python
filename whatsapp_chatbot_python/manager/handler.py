@@ -108,6 +108,32 @@ class Notification:
                 chat, message, buttons, footer, quoted_message_id, archive_chat
             )
 
+    def answer_with_interactive_buttons(
+            self,
+            body: str,
+            buttons: List[Dict[str, Union[str, Dict[str, str]]]],
+            header: Optional[str] = None,
+            footer: Optional[str] = None,
+    ) -> Optional[Response]:
+        chat = self.get_chat()
+        if chat:
+            return self.api.sending.sendInteractiveButtons(
+                chat, body, buttons, header, footer
+            )
+
+    def answer_with_interactive_buttons_reply(
+            self,
+            body: str,
+            buttons: List[Dict[str, str]],
+            header: Optional[str] = None,
+            footer: Optional[str] = None,
+    ) -> Optional[Response]:
+        chat = self.get_chat()
+        if chat:
+            return self.api.sending.sendInteractiveButtonsReply(
+                chat, body, buttons, header, footer
+            )
+
     def answer_with_file(
             self,
             file: str,
@@ -133,7 +159,6 @@ class Notification:
             return self.api.sending.sendPoll(
                 chat, message, options, multiple_answers, quoted_message_id
             )
-
 
 HandlerType = Callable[[Notification], Any]
 
