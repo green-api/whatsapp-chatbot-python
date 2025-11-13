@@ -99,7 +99,7 @@ To start the bot, call the `bot.run_forever` function. You can stop the bot with
 
 In this example, the bot will only answer the `message` message.
 
-Link to example: [base.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/base.py).
+Link to example: [base.py](./examples/base.py).
 
 ```
 @bot.router.message(text_message="message")
@@ -123,7 +123,7 @@ body.
 
 In this example, the bot receives all incoming messages.
 
-Link to example: [event.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/event.py).
+Link to example: [event.py](./examples/event.py).
 
 ```
 @bot.router.message()
@@ -206,7 +206,7 @@ command = ("help", "!/")
 
 In this example, the bot will send a photo in response to the `rates` command.
 
-Link to example: [filters.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/filters.py).
+Link to example: [filters.py](./examples/filters.py).
 
 ```
 @bot.router.message(command="rates")
@@ -217,32 +217,48 @@ def message_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
-### How to handle buttons (deprecated)
-
-The method is temporarily not working. When the method is called, a 403 error will be returned.
+### How to handle buttons 
 
 To be notified when a button is pressed, you must use the `bot.router.buttons` object.
 
-Link to example: [buttons.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/buttons.py).
+Link to example: [interactive_buttons.py](./examples/interactive_buttons.py).
+
 
 ```
-@bot.router.buttons()
-def buttons_handler(notification: Notification) -> None:
-    notification.answer_buttons("Choose a color", [
-        {
-            "buttonId": 1,
-            "buttonText": "Red"
-        },
-        {
-            "buttonId": 2,
-            "buttonText": "Green"
-        },
-        {
-            "buttonId": 3,
-            "buttonText": "Blue"
-        }
-    ])
+@bot.router.message()
 
+def show_interactive_buttons_handler(notification: Notification) -> None:
+    notification.answer_with_interactive_buttons(
+        "This message contains interactive buttons",
+        [{
+            "type": "call",
+            "buttonId": "1",
+            "buttonText": "Call me",
+            "phoneNumber": "79123456789"
+        },
+        {
+            "type": "url",
+            "buttonId": "2",
+            "buttonText": "Green-api",
+            "url": "https://green-api.com"
+        }],
+        "Hello!",
+        "Hope you like it!"
+    )
+
+    notification.answer_with_interactive_buttons_reply(
+        "This message contains interactive reply buttons",
+        [{
+            "buttonId": "1",
+            "buttonText": "First Button"
+        },
+        {
+            "buttonId": "2",
+            "buttonText": "Second Button"
+        }],
+        "Hello!",
+        "Hope you like it!"
+    )
 
 bot.run_forever()
 ```
@@ -268,7 +284,7 @@ You also have the option to save the user's data in his state.
 
 The first argument is the sender ID. It can be found by calling `notification.sender`.
 
-Link to example: [states.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/states.py).
+Link to example: [states.py](./examples/states.py).
 
 ```python
 from whatsapp_chatbot_python import BaseStates, GreenAPIBot, Notification
@@ -400,14 +416,18 @@ As an example, a bot was created to support the GREEN API. Command list:
 - 2 or Show office address (the bot will send the office address as a map)
 - 3 or Show available rates (the bot will send a picture of the rates)
 - 4 or Call a support operator (the bot will send a text message)
+- 5 or Show interactive buttons (the bot will send a message with interactive buttons)
+- 6 or Show interactive reply buttons (the bot will send a message with interactive reply buttons)
 
 To send a text message, you have to use the `notification.answer` method.
 To send a location, you have to use the `sending.sendLocation` method from `notification.api`.
 To send a message with a file, you have to use the `notification.answer_with_file` method.
+To send a message with interactive buttons, you have to use  `notification.answer_with_interactive_buttons` method.
+To send a message with interactive reply buttons, you have to use `notification.answer_with_interactive_buttons_reply` method.
 
 In this example, the bot only responds to commands from the list above.
 
-Link to example: [full.py](https://github.com/green-api/whatsapp-chatbot-python/blob/master/examples/full.py).
+Link to example: [full.py](./examples/full.py).
 
 ```python
 from whatsapp_chatbot_python import GreenAPIBot, Notification
@@ -428,18 +448,18 @@ def message_handler(notification: Notification) -> None:
             "1. Report a problem\n"
             "2. Show office address\n"
             "3. Show available rates\n"
-            "4. Call a support operator\n\n"
+            "4. Call a support operator\n"
+            "5. Show interactive buttons\n"
+            "6. Show interactive reply buttons\n\n"
             "Choose a number and send to me."
         )
     )
-
 
 @bot.router.message(text_message=["1", "Report a problem"])
 def report_problem_handler(notification: Notification) -> None:
     notification.answer(
         "https://github.com/green-api/issues/issues/new", link_preview=False
     )
-
 
 @bot.router.message(text_message=["2", "Show office address"])
 def show_office_address_handler(notification: Notification) -> None:
@@ -449,16 +469,50 @@ def show_office_address_handler(notification: Notification) -> None:
         chatId=chat, latitude=55.7522200, longitude=37.6155600
     )
 
-
 @bot.router.message(text_message=["3", "Show available rates"])
 def show_available_rates_handler(notification: Notification) -> None:
-    notification.answer_with_file("data/rates.png")
+    notification.answer_with_file("examples/data/rates.png")
 
 
 @bot.router.message(text_message=["4", "Call a support operator"])
 def call_support_operator_handler(notification: Notification) -> None:
     notification.answer("Good. A tech support operator will contact you soon.")
 
+@bot.router.message(text_message=["5", "Show interactive buttons"])
+def show_interactive_buttons_handler(notification: Notification) -> None:
+    notification.answer_with_interactive_buttons(
+        "This message contains interactive buttons",
+        [{
+            "type": "call",
+            "buttonId": "1",
+            "buttonText": "Call me",
+            "phoneNumber": "79123456789"
+        },
+        {
+            "type": "url",
+            "buttonId": "2",
+            "buttonText": "Green-api",
+            "url": "https://green-api.com"
+        }],
+        "Hello!",
+        "Hope you like it!"
+    )
+
+@bot.router.message(text_message=["6", "Show interactive reply buttons"])
+def show_interactive_buttons_reply_handler(notification: Notification) -> None:
+    notification.answer_with_interactive_buttons_reply(
+        "This message contains interactive reply buttons",
+        [{
+            "buttonId": "1",
+            "buttonText": "First Button"
+        },
+        {
+            "buttonId": "2",
+            "buttonText": "Second Button"
+        }],
+        "Hello!",
+        "Hope you like it!"
+    )
 
 bot.run_forever()
 ```

@@ -16,7 +16,9 @@ def message_handler(notification: Notification) -> None:
             "1. Report a problem\n"
             "2. Show office address\n"
             "3. Show available rates\n"
-            "4. Call a support operator\n\n"
+            "4. Call a support operator\n"
+            "5. Show interactive buttons\n"
+            "6. Show interactive reply buttons\n\n"
             "Choose a number and send to me."
         )
     )
@@ -40,12 +42,47 @@ def show_office_address_handler(notification: Notification) -> None:
 
 @bot.router.message(text_message=["3", "Show available rates"])
 def show_available_rates_handler(notification: Notification) -> None:
-    notification.answer_with_file("data/rates.png")
+    notification.answer_with_file("examples/data/rates.png")
 
 
 @bot.router.message(text_message=["4", "Call a support operator"])
 def call_support_operator_handler(notification: Notification) -> None:
     notification.answer("Good. A tech support operator will contact you soon.")
 
+@bot.router.message(text_message=["5", "Show interactive buttons"])
+def show_interactive_buttons_handler(notification: Notification) -> None:
+    notification.answer_with_interactive_buttons(
+        "This message contains interactive buttons",
+        [{
+            "type": "call",
+            "buttonId": "1",
+            "buttonText": "Call me",
+            "phoneNumber": "79123456789"
+        },
+        {
+            "type": "url",
+            "buttonId": "2",
+            "buttonText": "Green-api",
+            "url": "https://green-api.com"
+        }],
+        "Hello!",
+        "Hope you like it!"
+    )
+
+@bot.router.message(text_message=["6", "Show interactive reply buttons"])
+def show_interactive_buttons_reply_handler(notification: Notification) -> None:
+    notification.answer_with_interactive_buttons_reply(
+        "This message contains interactive reply buttons",
+        [{
+            "buttonId": "1",
+            "buttonText": "First Button"
+        },
+        {
+            "buttonId": "2",
+            "buttonText": "Second Button"
+        }],
+        "Hello!",
+        "Hope you like it!"
+    )
 
 bot.run_forever()
