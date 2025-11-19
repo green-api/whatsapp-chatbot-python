@@ -27,7 +27,7 @@ def message_handler(notification: Notification) -> None:
 @bot.router.message(text_message=["1", "Report a problem"])
 def report_problem_handler(notification: Notification) -> None:
     notification.answer(
-        "https://github.com/green-api/issues/issues/new", link_preview=False
+        "https://github.com/green-api/issues/issues/new", link_preview=False, typing_time=2000
     )
 
 
@@ -47,7 +47,9 @@ def show_available_rates_handler(notification: Notification) -> None:
 
 @bot.router.message(text_message=["4", "Call a support operator"])
 def call_support_operator_handler(notification: Notification) -> None:
-    notification.answer("Good. A tech support operator will contact you soon.")
+    notification.answer(
+        "Good. A tech support operator will contact you soon.", typing_time=2000
+    )
 
 @bot.router.message(text_message=["5", "Show interactive buttons"])
 def show_interactive_buttons_handler(notification: Notification) -> None:
