@@ -1,2 +1,0 @@
-whatsapp-api-client-python>=0.0.53
-aiogram>=3.13.1
