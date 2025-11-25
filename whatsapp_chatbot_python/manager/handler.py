@@ -86,12 +86,13 @@ class Notification:
             message: str,
             quoted_message_id: Optional[str] = None,
             archive_chat: Optional[bool] = None,
-            link_preview: Optional[bool] = None
+            link_preview: Optional[bool] = None,
+            typing_time: Optional[int] = None
     ) -> Optional[Response]:
         chat = self.get_chat()
         if chat:
             return self.api.sending.sendMessage(
-                chat, message, quoted_message_id, archive_chat, link_preview
+                chat, message, quoted_message_id, archive_chat, link_preview, typing_time
             )
 
     def answer_buttons(
@@ -113,7 +114,7 @@ class Notification:
             body: str,
             buttons: List[Dict[str, Union[str, Dict[str, str]]]],
             header: Optional[str] = None,
-            footer: Optional[str] = None,
+            footer: Optional[str] = None
     ) -> Optional[Response]:
         chat = self.get_chat()
         if chat:
@@ -126,7 +127,7 @@ class Notification:
             body: str,
             buttons: List[Dict[str, str]],
             header: Optional[str] = None,
-            footer: Optional[str] = None,
+            footer: Optional[str] = None
     ) -> Optional[Response]:
         chat = self.get_chat()
         if chat:
@@ -139,12 +140,14 @@ class Notification:
             file: str,
             file_name: Optional[str] = None,
             caption: Optional[str] = None,
-            quoted_message_id: Optional[str] = None
+            quoted_message_id: Optional[str] = None,
+            typing_time: Optional[int] = None,
+            typing_type: Optional[str] = None
     ) -> Optional[Response]:
         chat = self.get_chat()
         if chat:
             return self.api.sending.sendFileByUpload(
-                chat, file, file_name, caption, quoted_message_id
+                chat, file, file_name, caption, quoted_message_id, typing_time, typing_type
             )
 
     def answer_with_poll(
@@ -152,12 +155,13 @@ class Notification:
             message: str,
             options: List[Dict[str, str]],
             multiple_answers: Optional[bool] = None,
-            quoted_message_id: Optional[str] = None
+            quoted_message_id: Optional[str] = None,
+            typing_time: Optional[int] = None
     ) -> Optional[Response]:
         chat = self.get_chat()
         if chat:
             return self.api.sending.sendPoll(
-                chat, message, options, multiple_answers, quoted_message_id
+                chat, message, options, multiple_answers, quoted_message_id, typing_time
             )
 
 HandlerType = Callable[[Notification], Any]
