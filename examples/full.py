@@ -1,7 +1,7 @@
 from whatsapp_chatbot_python import GreenAPIBot, Notification
 
 bot = GreenAPIBot(
-    "1101000001", "d75b3a66374942c5b3c019c698abc2067e151558acbd412345"
+    "7105246622", "c880070976f64f8797484d14819276a457f481a327d64f9da4"
 )
 
 
@@ -77,11 +77,23 @@ def show_interactive_buttons_reply_handler(notification: Notification) -> None:
         "This message contains interactive reply buttons",
         [{
             "buttonId": "1",
-            "buttonText": "First Button"
+            "buttonText": "Report a problem"
         },
         {
             "buttonId": "2",
-            "buttonText": "Second Button"
+            "buttonText": "Show office address"
+        },
+        {
+            "buttonId": "3",
+            "buttonText": "Show available rates"
+        },
+        {
+            "buttonId": "4",
+            "buttonText": "Call a support operator"
+        },
+        {
+            "buttonId": "5",
+            "buttonText": "Show interactive buttons"
         }],
         "Hello!",
         "Hope you like it!"

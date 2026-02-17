@@ -60,6 +60,8 @@ class Notification:
             type_message = message_data["typeMessage"]
             if type_message == "textMessage":
                 return message_data["textMessageData"]["textMessage"]
+            if type_message == "interactiveButtonsResponse":
+                return message_data["interactiveButtonsResponse"]["selectedDisplayText"]
             elif (
                     type_message == "extendedTextMessage"
                     or type_message == "quotedMessage"
