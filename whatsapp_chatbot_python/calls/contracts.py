@@ -19,7 +19,7 @@ class TransitionCallback(Protocol):
 
 
 class CallExecutor(Protocol):
-    """Execute calls serially; request_stop permanently stops this executor."""
+    """request_stop permanently stops this executor."""
 
     async def execute(
         self, session: CallSession, transition: TransitionCallback

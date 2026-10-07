@@ -1,7 +1,10 @@
 from __future__ import annotations
 from contextlib import suppress
+from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
 from whatsapp_api_client_python.API import GreenAPI
-from whatsapp_api_client_python.tools.voip import CallAudio
+from whatsapp_api_client_python.tools.voip import CallAudio, CallsConnection
 from .contracts import TransitionCallback
 from .realtime_voice import VoiceBotSession
 from .recording import CallRecorder
@@ -15,6 +18,26 @@ import logging
 BRIDGE_NEGOTIATION_TIMEOUT_SECONDS = 15
 
 INITIAL_STATE_TIMEOUT_SECONDS = 10
+
+
+@dataclass(slots=True)
+class _CallExecution:
+    """Resources and progress of one execution, including partially completed setup."""
+
+    session: CallSession
+    transition: TransitionCallback
+    recorder: CallRecorder
+    runtime: CallRuntime | None = None
+    voice: VoiceBotSession | None = None
+    api: GreenAPI | None = None
+    calls: CallsConnection | None = None
+    initial_state: asyncio.Future[str] | None = None
+    bridge_task: asyncio.Task[None] | None = None
+    dial_started: bool = False
+    dialed: bool = False
+    execution_completed: bool = False
+    cancellation: asyncio.CancelledError | None = None
+    recording_path: Path | None = None
 
 
 class WhatsAppCallService:
@@ -56,187 +79,273 @@ class WhatsAppCallService:
 
     async def execute(
         self,
-        call_session: CallSession,
+        session: CallSession,
         transition: TransitionCallback,
     ) -> CallExecutionResult:
         if self._stop_requested:
-            transition(call_session, CallEvent.SHUTDOWN_REQUESTED, error_code="shutdown")
+            transition(session, CallEvent.SHUTDOWN_REQUESTED, error_code="shutdown")
             return CallExecutionResult()
 
-        recorder = CallRecorder(self._logger)
+        execution = _CallExecution(session, transition, CallRecorder(self._logger))
 
+        try:
+            await self._execute_call(execution)
+        except asyncio.CancelledError as error:
+            self._record_cancellation(execution, error)
+            raise
+        finally:
+            await self._finalize_call(execution)
+
+        return CallExecutionResult(execution.recording_path)
+
+    async def _execute_call(self, execution: _CallExecution) -> None:
+        # Setup failures propagate to the caller; call failures become FSM events.
+        await self._prepare_call(execution)
+
+        try:
+            await self._run_call(execution)
+        except Exception as error:
+            await self._handle_call_failure(execution, error)
+
+        execution.execution_completed = True
+
+    async def _prepare_call(self, execution: _CallExecution) -> None:
         runtime = CallRuntime(
             ring_timeout_seconds=self._ring_timeout,
             talk_timeout_seconds=self._talk_timeout,
             bridge_timeout_seconds=BRIDGE_NEGOTIATION_TIMEOUT_SECONDS,
         )
 
+        execution.runtime = runtime
         self._active_loop = asyncio.get_running_loop()
         self._active_runtime = runtime
 
         if self._stop_requested:
             runtime.events.put_nowait(RuntimeEvent.shutdown())
 
-        voice = VoiceBotSession(
+        execution.voice = VoiceBotSession(
             api_key=self._openai_api_key,
             model=self._realtime_model,
             voice=self._realtime_voice,
-            language=call_session.language,
+            language=execution.session.language,
             on_error=lambda error: runtime.events.put_nowait(RuntimeEvent.voice_failed(error)),
-            recorder=recorder,
+            recorder=execution.recorder,
         )
 
-        async def make_audio_session() -> CallAudio:
-            track = await voice.new_output_track()
+        await execution.voice.start()
 
-            try:
-                sink = voice.new_input_sink()
-            except BaseException:
-                track.stop()
-                raise
+        execution.api = GreenAPI(self._id_instance, self._api_token_instance, host=self._api_url)
 
-            async def close_audio() -> None:
-                try:
-                    await sink.close()
-                finally:
-                    track.stop()
+        execution.calls = execution.api.voip.connect(
+            audio_factory=partial(self._create_audio_session, execution.voice),
+        )
 
-            return CallAudio(track, sink.attach, close_audio)
+        execution.initial_state = asyncio.get_running_loop().create_future()
+
+        self._register_listeners(execution)
+
+    async def _create_audio_session(self, voice: VoiceBotSession) -> CallAudio:
+        track = await voice.new_output_track()
 
         try:
-            await voice.start()
-            api = GreenAPI(self._id_instance, self._api_token_instance, host=self._api_url)
-            calls = api.voip.connect(audio_factory=make_audio_session)
-        except Exception:
-            await voice.close()
-            recorder.finish()
-            self._active_runtime = None
-            self._active_loop = None
-
+            sink = voice.new_input_sink()
+        except BaseException:
+            track.stop()
             raise
 
-        bridge_task: asyncio.Task[None] | None = None
-        dialed = False
-        initial_state: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        dial_started = False
+        return CallAudio(track, sink.attach, partial(self._close_audio_session, sink, track))
 
-        def on_state(state) -> None:
-            if not initial_state.done():
-                initial_state.set_result(state.state)
+    @staticmethod
+    async def _close_audio_session(sink, track) -> None:
+        try:
+            await sink.close()
+        finally:
+            track.stop()
 
-            if dial_started:
-                runtime.events.put_nowait(RuntimeEvent.server_state(state.state, state.reason))
+    def _register_listeners(self, execution: _CallExecution) -> None:
+        calls = execution.calls
+        runtime = execution.runtime
 
-        def on_end_call(detail) -> None:
-            # NOTE: If the server returned the reason, it is a handled case.
-            #   Otherwise it falls into the error handler.
-            runtime.events.put_nowait(RuntimeEvent.end_call(detail.get("cause", None)))
+        calls.on("state", partial(self._on_state, execution))
 
-        def on_disconnect(detail) -> None:
-            permanent = bool(detail.get("permanent"))
+        calls.on("end_call", lambda detail: runtime.events.put_nowait(
+            RuntimeEvent.end_call(detail.get("cause", None)),
+        ))
 
-            if permanent and not initial_state.done():
-                initial_state.set_exception(RuntimeError("callsRtc connection refused"))
+        calls.on("disconnect", partial(self._on_disconnect, execution))
 
-            runtime.events.put_nowait(RuntimeEvent.disconnect(permanent))
+        calls.on("error", lambda detail: runtime.events.put_nowait(
+            RuntimeEvent.bridge_failed(RuntimeError("callsRtc reported an error")),
+        ))
 
-        def on_bridge_done(task: asyncio.Task[None]) -> None:
-            if task.cancelled():
-                return
+    @staticmethod
+    def _on_state(execution: _CallExecution, state) -> None:
+        if not execution.initial_state.done():
+            execution.initial_state.set_result(state.state)
 
-            error = task.exception()
-            result = RuntimeEvent.bridge_failed(error) if error else RuntimeEvent.bridge_ready()
+        if execution.dial_started:
+            execution.runtime.events.put_nowait(RuntimeEvent.server_state(state.state, state.reason))
 
-            runtime.events.put_nowait(result)
+    @staticmethod
+    def _on_disconnect(execution: _CallExecution, detail) -> None:
+        permanent = bool(detail.get("permanent"))
 
-        calls.on("state", on_state)
-        calls.on("end_call", on_end_call)
-        calls.on("disconnect", on_disconnect)
+        if permanent and not execution.initial_state.done():
+            execution.initial_state.set_exception(RuntimeError("callsRtc connection refused"))
 
-        calls.on(
-            "error",
-            lambda detail: runtime.events.put_nowait(
-                RuntimeEvent.bridge_failed(RuntimeError("callsRtc reported an error"))
-            ),
+        execution.runtime.events.put_nowait(RuntimeEvent.disconnect(permanent))
+
+    @staticmethod
+    def _on_bridge_done(execution: _CallExecution, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            return
+
+        error = task.exception()
+        event = RuntimeEvent.bridge_failed(error) if error else RuntimeEvent.bridge_ready()
+
+        execution.runtime.events.put_nowait(event)
+
+    async def _run_call(self, execution: _CallExecution) -> None:
+        await execution.calls.openAsync(timeout=INITIAL_STATE_TIMEOUT_SECONDS)
+
+        state = await asyncio.wait_for(execution.initial_state, timeout=INITIAL_STATE_TIMEOUT_SECONDS)
+
+        if state != "idle":
+            raise RuntimeError(f"Instance already has a call: {state}")
+
+        if self._stop_requested:
+            execution.transition(execution.session, CallEvent.SHUTDOWN_REQUESTED, error_code="shutdown")
+        else:
+            execution.dial_started = True
+
+            await execution.api.voip.dialAsync(execution.session.chat_id)
+
+            execution.dialed = True
+
+            execution.transition(execution.session, CallEvent.DIAL_ACCEPTED)
+            execution.runtime.start_ringing()
+
+            # Bridge completion confirms SDP, not ICE/DTLS or live audio.
+            execution.bridge_task = asyncio.create_task(execution.calls.startAudioAsync())
+
+            execution.bridge_task.add_done_callback(partial(self._on_bridge_done, execution))
+
+        await self._process_events(execution)
+
+    async def _process_events(self, execution: _CallExecution) -> None:
+        while execution.session.state not in TERMINAL_STATES:
+            event = await execution.runtime.next_event(execution.session.state)
+
+            if event is None:
+                await self._handle_timeout(
+                    execution.runtime, execution.api, execution.session, execution.transition,
+                )
+            else:
+                await self._handle_event(
+                    event, execution.runtime, execution.api, execution.voice,
+                    execution.recorder, execution.session, execution.transition,
+                )
+
+    async def _handle_call_failure(self, execution: _CallExecution, error: Exception) -> None:
+        self._logger.error(
+            "VoIP execution failed: session=%s error=%s",
+            execution.session.session_id,
+            type(error).__name__,
         )
 
+        execution.transition(
+            execution.session, CallEvent.INTERNAL_ERROR,
+            error_code=type(error).__name__,
+        )
+
+        if execution.dialed:
+            await self._safe_hang_up(execution.api)
+
+    @staticmethod
+    def _record_cancellation(execution: _CallExecution, error: asyncio.CancelledError) -> None:
+        if execution.cancellation is None:
+            execution.cancellation = error
+
+            # A failing callback must not prevent resource cleanup.
+            with suppress(Exception):
+                execution.transition(
+                    execution.session, CallEvent.SHUTDOWN_REQUESTED, error_code="cancelled",
+                )
+
+    async def _wait_for_cleanup(self, coroutine, execution: _CallExecution) -> None:
+        # Own the cleanup task until completion, including repeated cancel().
+        task = asyncio.create_task(coroutine)
+
+        while True:
+            try:
+                await asyncio.shield(task)
+                return
+            except asyncio.CancelledError as error:
+                self._record_cancellation(execution, error)
+
+                if task.cancelled():
+                    raise
+
+    async def _finalize_call(self, execution: _CallExecution) -> None:
         try:
-            await calls.openAsync(timeout=INITIAL_STATE_TIMEOUT_SECONDS)
-
-            state = await asyncio.wait_for(initial_state, timeout=INITIAL_STATE_TIMEOUT_SECONDS)
-
-            if state != "idle":
-                raise RuntimeError(f"Instance already has a call: {state}")
-
-            if self._stop_requested:
-                transition(call_session, CallEvent.SHUTDOWN_REQUESTED, error_code="shutdown")
-            else:
-                dial_started = True
-
-                await api.voip.dialAsync(call_session.chat_id)
-
-                dialed = True
-
-                transition(call_session, CallEvent.DIAL_ACCEPTED)
-                runtime.start_ringing()
-
-                # The library owns signaling and WebRTC; the voice session supplies audio.
-                # Bridge completion confirms the SDP answer, not ICE/DTLS or live audio.
-                bridge_task = asyncio.create_task(calls.startAudioAsync())
-                bridge_task.add_done_callback(on_bridge_done)
-
-            while call_session.state not in TERMINAL_STATES:
-                event = await runtime.next_event(call_session.state)
-
-                if event is None:
-                    await self._handle_timeout(runtime, api, call_session, transition)
-                else:
-                    await self._handle_event(event, runtime, api, voice, recorder, call_session, transition)
-        except Exception as error:
-            self._logger.error(
-                "VoIP execution failed: session=%s error=%s",
-                call_session.session_id,
-                type(error).__name__,
-            )
-
-            transition(
-                call_session, CallEvent.INTERNAL_ERROR,
-                error_code=type(error).__name__,
-            )
-
-            if dialed:
-                await self._safe_hang_up(api)
+            await self._close_call(execution)
         finally:
+            self._finish_recording(execution)
+
+        if execution.cancellation is not None:
+            raise execution.cancellation
+
+    async def _close_call(self, execution: _CallExecution) -> None:
+        try:
+            await self._wait_for_cleanup(self._close_connections(execution), execution)
+        finally:
+            await self._hang_up_after_cancellation(execution)
+
+    async def _close_connections(self, execution: _CallExecution) -> None:
+        # Preserve shutdown order: RTC, voice session, then the bridge task.
+        if execution.calls is not None:
             with suppress(Exception):
-                await asyncio.wait_for(calls.closeAsync(), timeout=self._shutdown_timeout)
+                await asyncio.wait_for(execution.calls.closeAsync(), timeout=self._shutdown_timeout)
+
+        if execution.voice is not None:
+            with suppress(Exception):
+                await asyncio.wait_for(execution.voice.close(), timeout=self._shutdown_timeout)
+
+        if execution.bridge_task is not None:
+            if not execution.bridge_task.done():
+                execution.bridge_task.cancel()
 
             with suppress(Exception):
-                await asyncio.wait_for(voice.close(), timeout=self._shutdown_timeout)
+                await asyncio.wait_for(
+                    asyncio.gather(execution.bridge_task, return_exceptions=True),
+                    timeout=self._shutdown_timeout,
+                )
 
-            if bridge_task is not None:
-                if not bridge_task.done():
-                    bridge_task.cancel()
+    async def _hang_up_after_cancellation(self, execution: _CallExecution) -> None:
+        # The dial request may have reached the server before its response arrived.
+        if execution.cancellation is not None and execution.dial_started:
+            with suppress(Exception):
+                await self._wait_for_cleanup(
+                    asyncio.wait_for(self._safe_hang_up(execution.api), timeout=self._shutdown_timeout),
+                    execution,
+                )
 
-                with suppress(Exception):
-                    await asyncio.wait_for(
-                        asyncio.gather(bridge_task, return_exceptions=True),
-                        timeout=self._shutdown_timeout,
-                    )
+    def _finish_recording(self, execution: _CallExecution) -> None:
+        self._active_runtime = None
+        self._active_loop = None
+        path = execution.recorder.finish()
 
-            self._active_runtime = None
-            self._active_loop = None
+        keep_recording = (
+            execution.execution_completed
+            and execution.cancellation is None
+            and execution.session.state in {CallState.REMOTE_ENDED, CallState.TALK_TIMEOUT}
+        )
 
-        # Encoding runs after the RTC and Realtime connections have closed.
-        path = recorder.finish()
-
-        if call_session.state not in {CallState.REMOTE_ENDED, CallState.TALK_TIMEOUT}:
-            # Preserve the established policy: discard partial failed calls.
-            if path is not None:
-                path.unlink(missing_ok=True)
-
+        if path is not None and not keep_recording:
+            path.unlink(missing_ok=True)
             path = None
 
-        return CallExecutionResult(path)
+        execution.recording_path = path
 
     async def _handle_event(
         self,

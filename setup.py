@@ -46,10 +46,11 @@ setup(
     install_requires=["whatsapp-api-client-python>=0.0.53"],
     extras_require={
         "voip": [
-            "whatsapp-api-client-python[voip]==0.0.55",
-            "openai==3.20.0",
-            "aiortc==1.15.0",
-            "av==17.1.0",
+            "whatsapp-api-client-python[voip]==0.0.55; python_version >= '3.11'",
+            "openai==3.20.0; python_version >= '3.11'",
+            "aiortc==1.15.0; python_version >= '3.11'",
+            "av==17.1.0; python_version >= '3.11'",
+            "websockets>=16,<17; python_version >= '3.11'",
         ],
     },
     python_requires=">=3.7"
