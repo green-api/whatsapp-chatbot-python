@@ -91,7 +91,10 @@ class CallRuntime:
         timeout = self._next_timeout(state)
 
         try:
-            return await asyncio.wait_for(self.events.get(), timeout=timeout)
+            # Python 3.11 wait_for() can swallow cancellation when an event becomes ready. Wait in the current task
+            #   instead: https://github.com/python/cpython/issues/86296
+            async with asyncio.timeout(timeout):
+                return await self.events.get()
         except TimeoutError:
             return None
 
