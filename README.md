@@ -517,6 +517,141 @@ def show_interactive_buttons_reply_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+## Optional voice calls (VoIP)
+
+The `whatsapp_chatbot_python.calls` package executes one outgoing WhatsApp
+voice call through the GreenAPI SDK, with an OpenAI Realtime conversation,
+timeouts, audio playback and a best-effort MP3 recording. It requires **Python
+3.11+**, an authorized VoIP-capable instance and an OpenAI API key. Install the
+optional dependencies (or use `'.[voip]'` when installing from this checkout):
+
+```shell
+python -m pip install 'whatsapp-chatbot-python[voip]'
+```
+
+The extra pins the SDK and audio/provider versions used by the source demo.
+The ordinary chatbot import does not load OpenAI, aiortc or PyAV. Call models,
+contracts and the FSM are available from `whatsapp_chatbot_python.calls`;
+import the executor explicitly from `whatsapp_chatbot_python.calls.service`.
+
+### Execute one call
+
+The model and voice are supplied by the application. This example performs an
+actual call when run with valid credentials:
+
+```python
+import asyncio
+import logging
+import os
+
+from whatsapp_chatbot_python.calls import (
+    CallEvent, CallSession, CallStateMachine,
+)
+from whatsapp_chatbot_python.calls.service import WhatsAppCallService
+
+service = WhatsAppCallService(
+    api_url="https://api.green-api.com",
+    id_instance=os.environ["ID_INSTANCE"],
+    api_token_instance=os.environ["API_TOKEN_INSTANCE"],
+    openai_api_key=os.environ["OPENAI_API_KEY"],
+    realtime_model=os.environ["REALTIME_MODEL"],
+    realtime_voice=os.environ["REALTIME_VOICE"],
+    ring_timeout_seconds=30,
+    talk_timeout_seconds=120,
+    shutdown_timeout_seconds=10,
+    logger=logging.getLogger("calls"),
+)
+
+async def call_once():
+    session = CallSession(
+        sender_id="79123456789@c.us",
+        chat_id="79123456789@c.us",
+        language="ru",
+    )
+    fsm = CallStateMachine()
+    fsm.apply(session, CallEvent.ENQUEUED)
+    fsm.apply(session, CallEvent.DEQUEUED)
+    result = await service.execute(session, fsm.apply)
+    try:
+        print(session.state, session.end_reason, session.error_code)
+        if result.recording_path is not None:
+            print("MP3:", result.recording_path)
+            # Upload or copy the recording here, before removing it.
+    finally:
+        if result.recording_path is not None:
+            result.recording_path.unlink(missing_ok=True)
+
+asyncio.run(call_once())
+```
+
+`execute(session, transition)` retains the demo's interface. Prepare the session
+in `DIALING` (the `ENQUEUED` / `DEQUEUED` transitions above do this). The callback
+must **synchronously apply each transition to the same session**, not merely
+log it. A coordinator should apply transitions under its existing lock.
+The final state, end reason and error code are on the mutated `CallSession`;
+`CallExecutionResult` contains only `recording_path: Path | None`.
+
+Run calls serially on each service instance. `request_stop()` is thread-safe
+and permanently requests shutdown of that executor; create a new executor to
+resume. Initialization failures may propagate to the caller, as in the demo;
+the application/coordinator must handle them. Once execution reaches its main
+call loop, handled errors are reflected through FSM transitions.
+
+### Integrate with an existing demo coordinator
+
+Replace the old service import with:
+
+```python
+from whatsapp_chatbot_python.calls.service import WhatsAppCallService
+from whatsapp_chatbot_python.calls.contracts import CallExecutor, TransitionCallback
+from whatsapp_chatbot_python.calls import CallSession, CallStateMachine
+```
+
+Keep the constructor arguments and the existing worker invocation:
+
+```python
+result = asyncio.run(executor.execute(session, coordinator.transition))
+```
+
+Queueing, duplicate prevention, chat commands, menu state, localized result
+texts and uploading the recording remain in the application. Keep the call in
+the coordinator's worker: waiting for it inside a synchronous message handler
+blocks notification processing. The executor creates its own GreenAPI client;
+no `Notification` or chatbot API object needs to cross threads.
+
+Old model/FSM imports can be retained with explicit re-exports from this package.
+Keep `EnqueueResult` in the demo. Move test mock targets from
+`internal.calls.service.*` to `whatsapp_chatbot_python.calls.service.*` (and
+likewise for audio modules): re-exporting a class does not redirect its globals.
+
+### Audio and recording behavior
+
+The original audio pipeline is preserved: mono PCM16 at 24 kHz, 20 ms output
+frames, caller interruption, bounded playback buffering, and replacement audio
+tracks on reconnect while retaining one conversation and greeting. Greeting
+starts after remote acceptance and audio bridge negotiation; negotiation does
+not itself guarantee live ICE/DTLS audio. The talk timer starts at remote
+acceptance, including time waiting for the bridge.
+
+Recording mixes both parties and keeps pauses. A recording is returned only
+for `REMOTE_ENDED` or `TALK_TIMEOUT`, and may still be `None` if there was no
+audio or recording failed. Failed-call partial recordings are discarded.
+The returned temporary MP3 belongs to the caller: upload/copy it if needed and
+always delete it afterwards. Recording failure does not by itself fail the call.
+
+### Tests
+
+```shell
+python -m pip install -e '.[voip]' pytest
+python -m pytest tests
+```
+
+The call tests cover dialing, acceptance/bridge ordering, reconnects, shutdown,
+timeouts, playback interruption and real MP3 encode/decode. Network/provider
+behavior is simulated. Without optional audio dependencies, pytest collects
+only the lightweight FSM/runtime tests; on Python below 3.11 it omits the call
+suite. CI installs the extra and runs the full suite on Python 3.11–3.13.
+
 ## Service methods documentation
 
 [Service methods documentation](https://green-api.com/en/docs/api/)

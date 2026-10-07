@@ -513,6 +513,140 @@ def show_interactive_buttons_reply_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+## Голосовые звонки (необязательное дополнение VoIP)
+
+Пакет `whatsapp_chatbot_python.calls` выполняет один исходящий WhatsApp-звонок:
+подключение через GreenAPI SDK, голосовой разговор с OpenAI Realtime,
+тайм-ауты, воспроизведение и запись MP3. Требуются **Python 3.11+**,
+авторизованный инстанс с поддержкой VoIP и ключ OpenAI.
+
+```shell
+python -m pip install 'whatsapp-chatbot-python[voip]'
+```
+
+Для установки из исходников используйте `python -m pip install -e '.[voip]'`.
+Дополнение фиксирует версии SDK, OpenAI и аудиобиблиотек из исходного демо.
+Обычный импорт чат-бота не загружает OpenAI, aiortc или PyAV.
+
+### Выполнить один звонок
+
+Модель и голос задаёт приложение. При запуске с действительными реквизитами
+этот пример совершит настоящий звонок:
+
+```python
+import asyncio
+import logging
+import os
+
+from whatsapp_chatbot_python.calls import (
+    CallEvent, CallSession, CallStateMachine,
+)
+from whatsapp_chatbot_python.calls.service import WhatsAppCallService
+
+service = WhatsAppCallService(
+    api_url="https://api.green-api.com",
+    id_instance=os.environ["ID_INSTANCE"],
+    api_token_instance=os.environ["API_TOKEN_INSTANCE"],
+    openai_api_key=os.environ["OPENAI_API_KEY"],
+    realtime_model=os.environ["REALTIME_MODEL"],
+    realtime_voice=os.environ["REALTIME_VOICE"],
+    ring_timeout_seconds=30,
+    talk_timeout_seconds=120,
+    shutdown_timeout_seconds=10,
+    logger=logging.getLogger("calls"),
+)
+
+async def call_once():
+    session = CallSession(
+        sender_id="79123456789@c.us",
+        chat_id="79123456789@c.us",
+        language="ru",
+    )
+    fsm = CallStateMachine()
+    fsm.apply(session, CallEvent.ENQUEUED)
+    fsm.apply(session, CallEvent.DEQUEUED)
+    result = await service.execute(session, fsm.apply)
+    try:
+        print(session.state, session.end_reason, session.error_code)
+        if result.recording_path is not None:
+            print("MP3:", result.recording_path)
+            # Upload or copy the recording here, before removing it.
+    finally:
+        if result.recording_path is not None:
+            result.recording_path.unlink(missing_ok=True)
+
+asyncio.run(call_once())
+```
+
+Сохранён интерфейс `await service.execute(session, transition)`.
+Перед выполнением сессия должна находиться в `DIALING`: выше её подготавливают
+переходы `ENQUEUED` и `DEQUEUED`. Callback обязан синхронно применять FSM к
+той же сессии. В координаторе это делается под его существующей блокировкой.
+Callback, который только логирует событие, для этого контракта не подходит.
+
+Итоговое состояние, причина завершения и код ошибки находятся в изменённой
+`CallSession`. `CallExecutionResult` возвращает только путь к записи либо `None`.
+На одном исполнителе звонки выполняются последовательно.
+`request_stop()` можно вызвать из другого потока: он навсегда запрашивает
+остановку данного исполнителя. Для возобновления создайте новый объект.
+Ошибки начальной подготовки могут выбрасываться вызывающей стороне; координатор
+должен их обрабатывать, как в исходном демо.
+
+### Подключение к демо
+
+Замените импорт сервиса и общих контрактов:
+
+```python
+from whatsapp_chatbot_python.calls.service import WhatsAppCallService
+from whatsapp_chatbot_python.calls.contracts import CallExecutor, TransitionCallback
+from whatsapp_chatbot_python.calls import CallSession, CallStateMachine
+```
+
+Аргументы конструктора сохраняются. В рабочем потоке координатора остаётся:
+
+```python
+result = asyncio.run(executor.execute(session, coordinator.transition))
+```
+
+Очередь, защита от повторных заявок, команды чата, меню, локализованные ответы
+и загрузка записи остаются в приложении. Не ждите звонок внутри синхронного
+обработчика сообщений: это задержит обработку остальных уведомлений.
+Исполнитель создаёт собственный GreenAPI-клиент; передавать ему `Notification`
+или API-клиент обработчика не требуется.
+
+Старые импорты моделей и FSM можно сохранить явными реэкспортами.
+`EnqueueResult` остаётся в демо. Пути подмен в тестах нужно изменить с
+`internal.calls.service.*` на `whatsapp_chatbot_python.calls.service.*`,
+аналогично для аудиомодулей: реэкспорт класса не меняет его глобальные зависимости.
+
+### Аудио и запись
+
+Сохранены PCM16 mono 24 кГц, кадры по 20 мс, прерывание ответа собеседником,
+ограничение буфера и замена аудиотреков при переподключении без нового разговора
+и повторного приветствия. Приветствие начинается после ответа и согласования
+моста; согласование само по себе не подтверждает наличие живого аудио ICE/DTLS.
+Таймер разговора запускается при ответе собеседника, включая ожидание моста.
+
+Запись объединяет обе стороны и сохраняет паузы. Файл возвращается только при
+`REMOTE_ENDED` и `TALK_TIMEOUT`; отсутствие аудио или ошибка записи могут дать
+`None` и в этих случаях. Частичные записи неуспешных звонков удаляются.
+Возвращённым временным MP3 владеет приложение: после отправки или копирования
+оно обязано удалить файл, предпочтительно через `finally`.
+Ошибка записи сама по себе не завершает разговор как неуспешный.
+
+### Проверка
+
+```shell
+python -m pip install -e '.[voip]' pytest
+python -m pytest tests
+```
+
+Тесты проверяют дозвон, порядок ответа и готовности моста, переподключения,
+остановку, тайм-ауты, прерывания аудио и настоящее кодирование/декодирование MP3.
+Сеть и провайдер моделируются. Без аудиозависимостей pytest собирает только
+лёгкие тесты FSM и таймеров; на Python ниже 3.11 тесты звонков не собираются.
+CI устанавливает дополнение и запускает полный набор на Python 3.11–3.13.
+
 ## Документация по методам сервиса
 
 [Документация по методам сервиса](https://green-api.com/docs/api/)
