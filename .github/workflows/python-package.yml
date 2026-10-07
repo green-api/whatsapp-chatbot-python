@@ -29,16 +29,13 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Lint with ruff
         run: |
-          # stop the build if there are Python syntax errors or undefined names
-          ruff check --output-format=github --select=E9,F63,F7,F82 --target-version=py39 .
-          # default set of ruff rules with GitHub Annotations
-          ruff check --output-format=github --target-version=py39 .
+          ruff check --config ruff.toml --output-format=github .
       - name: Test with pytest
         run: |
           pytest tests --ignore=tests/calls
 
   calls:
-    name: VoIP / ${{ matrix.python-version }}
+    name: ${{ matrix.python-version }} (VoIP)
     runs-on: ubuntu-24.04
     strategy:
       matrix:

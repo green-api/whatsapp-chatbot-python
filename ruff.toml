@@ -1,0 +1,6 @@
+# Match the SDK's lint policy: catch code errors without rewriting legacy style.
+target-version = "py39"
+force-exclude = true
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
