@@ -513,6 +513,68 @@ def show_interactive_buttons_reply_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+## Голосовые звонки (необязательное дополнение VoIP)
+
+Пакет `whatsapp_chatbot_python.calls` выполняет один исходящий WhatsApp-звонок: подключение через GreenAPI SDK,
+голосовой разговор с OpenAI Realtime, тайм-ауты, воспроизведение и запись MP3. Требуются **Python 3.11+**,
+авторизованный инстанс с поддержкой VoIP и ключ OpenAI.
+
+```shell
+python -m pip install 'whatsapp-chatbot-python[voip]'
+```
+
+Для установки из исходников используйте `python -m pip install -e '.[voip]'`. Дополнение фиксирует версии SDK, OpenAI и
+аудиобиблиотек. Обычный импорт чат-бота не загружает OpenAI, aiortc или PyAV.
+
+### Выполнить один звонок
+
+Модель и голос задаёт приложение. При запуске с действительными реквизитами этот пример совершит настоящий звонок:
+
+```python
+import asyncio
+import logging
+import os
+
+from whatsapp_chatbot_python.calls import (
+    CallEvent, CallSession, CallStateMachine,
+)
+from whatsapp_chatbot_python.calls.service import WhatsAppCallService
+
+service = WhatsAppCallService(
+    api_url="https://api.green-api.com",
+    id_instance=os.environ["ID_INSTANCE"],
+    api_token_instance=os.environ["API_TOKEN_INSTANCE"],
+    openai_api_key=os.environ["OPENAI_API_KEY"],
+    realtime_model=os.environ["REALTIME_MODEL"],
+    realtime_voice=os.environ["REALTIME_VOICE"],
+    ring_timeout_seconds=30,
+    talk_timeout_seconds=120,
+    shutdown_timeout_seconds=10,
+    logger=logging.getLogger("calls"),
+)
+
+async def call_once():
+    session = CallSession(
+        sender_id="79123456789@c.us",
+        chat_id="79123456789@c.us",
+        language="ru",
+    )
+    fsm = CallStateMachine()
+    fsm.apply(session, CallEvent.ENQUEUED)
+    fsm.apply(session, CallEvent.DEQUEUED)
+    result = await service.execute(session, fsm.apply)
+    try:
+        print(session.state, session.end_reason, session.error_code)
+        if result.recording_path is not None:
+            print("MP3:", result.recording_path)
+            # Upload or copy the recording here, before removing it.
+    finally:
+        if result.recording_path is not None:
+            result.recording_path.unlink(missing_ok=True)
+
+asyncio.run(call_once())
+```
+
 ## Документация по методам сервиса
 
 [Документация по методам сервиса](https://green-api.com/docs/api/)

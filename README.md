@@ -517,6 +517,72 @@ def show_interactive_buttons_reply_handler(notification: Notification) -> None:
 bot.run_forever()
 ```
 
+## Optional voice calls (VoIP)
+
+The `whatsapp_chatbot_python.calls` package executes one outgoing WhatsApp
+voice call through the GreenAPI SDK, with an OpenAI Realtime conversation,
+timeouts, audio playback and a best-effort MP3 recording. It requires **Python
+3.11+**, an authorized VoIP-capable instance and an OpenAI API key. Install the
+optional dependencies (or use `'.[voip]'` when installing from this checkout):
+
+```shell
+python -m pip install 'whatsapp-chatbot-python[voip]'
+```
+
+The extra pins the SDK and audio/provider versions used. The ordinary chatbot import does not load OpenAI, aiortc or
+PyAV. Call models, contracts and the FSM are available from `whatsapp_chatbot_python.calls`; import the executor
+explicitly from `whatsapp_chatbot_python.calls.service`.
+
+### Execute one call
+
+The model and voice are supplied by the application. This example performs an actual call when run with valid
+credentials:
+
+```python
+import asyncio
+import logging
+import os
+
+from whatsapp_chatbot_python.calls import (
+    CallEvent, CallSession, CallStateMachine,
+)
+from whatsapp_chatbot_python.calls.service import WhatsAppCallService
+
+service = WhatsAppCallService(
+    api_url="https://api.green-api.com",
+    id_instance=os.environ["ID_INSTANCE"],
+    api_token_instance=os.environ["API_TOKEN_INSTANCE"],
+    openai_api_key=os.environ["OPENAI_API_KEY"],
+    realtime_model=os.environ["REALTIME_MODEL"],
+    realtime_voice=os.environ["REALTIME_VOICE"],
+    ring_timeout_seconds=30,
+    talk_timeout_seconds=120,
+    shutdown_timeout_seconds=10,
+    logger=logging.getLogger("calls"),
+)
+
+async def call_once():
+    session = CallSession(
+        sender_id="79123456789@c.us",
+        chat_id="79123456789@c.us",
+        language="ru",
+    )
+    fsm = CallStateMachine()
+    fsm.apply(session, CallEvent.ENQUEUED)
+    fsm.apply(session, CallEvent.DEQUEUED)
+    result = await service.execute(session, fsm.apply)
+    try:
+        print(session.state, session.end_reason, session.error_code)
+        if result.recording_path is not None:
+            print("MP3:", result.recording_path)
+            # Upload or copy the recording here, before removing it.
+    finally:
+        if result.recording_path is not None:
+            result.recording_path.unlink(missing_ok=True)
+
+asyncio.run(call_once())
+```
+
 ## Service methods documentation
 
 [Service methods documentation](https://green-api.com/en/docs/api/)
