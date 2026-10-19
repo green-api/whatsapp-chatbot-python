@@ -23,7 +23,8 @@ class BlockOptionalImports(importlib.abc.MetaPathFinder):
             raise ImportError("optional dependency blocked: " + fullname)
 
 sys.meta_path.insert(0, BlockOptionalImports())
-from whatsapp_chatbot_python import GreenAPIBot, Notification
+from whatsapp_chatbot_python import GreenAPIBot, IncomingCall, IncomingCallNotification, Notification
+assert IncomingCallNotification.__name__ == "IncomingCallNotification"
 assert "whatsapp_chatbot_python.calls" not in sys.modules
 ''')
 
