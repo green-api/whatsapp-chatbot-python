@@ -134,13 +134,18 @@ class VoiceBotSession:
         model: str,
         voice: str,
         language: str,
+        greeting_text: str | None = None,
         on_error: Callable[[Exception], None],
         recorder: CallRecorder | None = None,
     ) -> None:
+        if not isinstance(api_key, str) or not api_key.strip():
+            raise ValueError("OpenAI API key is required for voice calls")
+
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
         self._voice = voice
         self._language = language
+        self._greeting_text = greeting_text
         self._on_error = on_error
         self.recorder = recorder
         self._manager = None
@@ -218,10 +223,16 @@ class VoiceBotSession:
 
         self._greeted = True
 
+        language = LANGUAGE_NAMES.get(self._language, "English")
+
+        instructions = (
+            f'Greet the caller: "{self._greeting_text}" in {language}.'
+            if self._greeting_text else
+            f"Greet the caller briefly in {language}."
+        )
+
         await self._connection.response.create(response={
-            "instructions": (
-                f"Greet the caller briefly in {LANGUAGE_NAMES.get(self._language, 'English')}."
-            ),
+            "instructions": instructions,
         })
 
     async def new_output_track(self) -> BotOutputTrack:

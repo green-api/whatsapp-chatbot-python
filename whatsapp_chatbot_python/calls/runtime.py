@@ -14,6 +14,7 @@ class RuntimeEventType(StrEnum):
     END_CALL = "end_call"
     DISCONNECT = "disconnect"
     SHUTDOWN = "shutdown"
+    CALLER_LEFT = "caller_left"
 
 
 class RuntimeTimer(StrEnum):
@@ -58,6 +59,10 @@ class RuntimeEvent:
     def shutdown(cls) -> RuntimeEvent:
         return cls(RuntimeEventType.SHUTDOWN)
 
+    @classmethod
+    def caller_left(cls) -> RuntimeEvent:
+        return cls(RuntimeEventType.CALLER_LEFT)
+
 
 @dataclass(slots=True)
 class CallRuntime:
@@ -69,8 +74,8 @@ class CallRuntime:
     talk_deadline: float | None = None
     bridge_deadline: float | None = None
 
-    def start_ringing(self) -> None:
-        self.ring_deadline = monotonic() + self.ring_timeout_seconds
+    def start_ringing(self, *, deadline: float | None = None) -> None:
+        self.ring_deadline = deadline if deadline is not None else monotonic() + self.ring_timeout_seconds
 
     def remote_accepted(self, bridge_ready: bool) -> None:
         if self.talk_deadline is None:

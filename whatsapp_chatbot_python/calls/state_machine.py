@@ -3,6 +3,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .models import (
+    CallDirection,
     CallEndReason,
     CallEvent,
     CallSession,
@@ -49,10 +50,16 @@ def _ending_target(session: CallSession) -> CallState:
     }.get(session.end_reason, CallState.FAILED)
 
 
+def _dequeued_target(session: CallSession) -> CallState:
+    return CallState.RINGING if session.direction == CallDirection.INCOMING else CallState.DIALING
+
+
 _TRANSITION_RULES: dict[tuple[CallState, CallEvent], TransitionRule] = {
     (CallState.TRIGGERED, CallEvent.ENQUEUED): TransitionRule(CallState.QUEUED),
-    (CallState.QUEUED, CallEvent.DEQUEUED): TransitionRule(CallState.DIALING),
+    (CallState.QUEUED, CallEvent.DEQUEUED): TransitionRule(_dequeued_target),
     (CallState.QUEUED, CallEvent.CANCEL_REQUESTED): TransitionRule(CallState.CANCELLED),
+    (CallState.QUEUED, CallEvent.INCOMING_EXPIRED): TransitionRule(CallState.RING_TIMEOUT),
+    (CallState.QUEUED, CallEvent.CALLER_LEFT): TransitionRule(CallState.REJECTED),
     (CallState.DIALING, CallEvent.DIAL_ACCEPTED): TransitionRule(CallState.RINGING),
     (CallState.DIALING, CallEvent.REMOTE_IDLE): TransitionRule(CallState.REJECTED),
 
@@ -69,8 +76,13 @@ _TRANSITION_RULES: dict[tuple[CallState, CallEvent], TransitionRule] = {
     (CallState.RINGING, CallEvent.RING_TIMER_EXPIRED): TransitionRule(
         CallState.ENDING
     ),
+    (CallState.RINGING, CallEvent.INCOMING_ACCEPTED): TransitionRule(CallState.RINGING),
+    (CallState.RINGING, CallEvent.INCOMING_EXPIRED): TransitionRule(CallState.RING_TIMEOUT),
+    (CallState.RINGING, CallEvent.CALLER_LEFT): TransitionRule(CallState.REJECTED),
 
     (CallState.CONNECTING, CallEvent.BRIDGE_READY): TransitionRule(CallState.IN_CALL),
+    (CallState.CONNECTING, CallEvent.INCOMING_ACCEPTED): TransitionRule(CallState.CONNECTING),
+    (CallState.CONNECTING, CallEvent.CALLER_LEFT): TransitionRule(CallState.REMOTE_ENDED),
 
     # The remote party already answered; report a completed call even if the
     # bridge never became ready. No recording is created until IN_CALL.
@@ -83,6 +95,8 @@ _TRANSITION_RULES: dict[tuple[CallState, CallEvent], TransitionRule] = {
     ),
 
     (CallState.IN_CALL, CallEvent.REMOTE_IDLE): TransitionRule(CallState.REMOTE_ENDED),
+    (CallState.IN_CALL, CallEvent.INCOMING_ACCEPTED): TransitionRule(CallState.IN_CALL),
+    (CallState.IN_CALL, CallEvent.CALLER_LEFT): TransitionRule(CallState.REMOTE_ENDED),
     (CallState.IN_CALL, CallEvent.TALK_TIMER_EXPIRED): TransitionRule(CallState.ENDING),
     (CallState.ENDING, CallEvent.HANGUP_CONFIRMED): TransitionRule(_ending_target),
     (CallState.ENDING, CallEvent.REMOTE_IDLE): TransitionRule(_ending_target),
@@ -122,6 +136,11 @@ class CallStateMachine:
         previous = session.state
 
         if previous in TERMINAL_STATES:
+            return self._ignored(previous, event)
+
+        if event in {
+            CallEvent.INCOMING_ACCEPTED, CallEvent.INCOMING_EXPIRED, CallEvent.CALLER_LEFT,
+        } and session.direction != CallDirection.INCOMING:
             return self._ignored(previous, event)
 
         rule = _TRANSITION_RULES.get((previous, event))
@@ -167,7 +186,18 @@ class CallStateMachine:
         if event == CallEvent.ENQUEUED:
             session.queued_at = now
         elif event == CallEvent.DEQUEUED:
-            session.dialing_at = now
+            if session.direction == CallDirection.OUTGOING:
+                session.dialing_at = now
+        elif event == CallEvent.INCOMING_ACCEPTED:
+            session.incoming_accept_completed = True
+        elif event == CallEvent.INCOMING_EXPIRED:
+            session.end_reason = CallEndReason.INCOMING_EXPIRED
+        elif event == CallEvent.CALLER_LEFT:
+            session.end_reason = (
+                CallEndReason.REMOTE_HANGUP
+                if session.state in {CallState.CONNECTING, CallState.IN_CALL}
+                else CallEndReason.CALLER_LEFT
+            )
         elif event == CallEvent.CANCEL_REQUESTED:
             session.end_reason = CallEndReason.USER_CANCELLED
         elif event == CallEvent.REMOTE_ACCEPTED:

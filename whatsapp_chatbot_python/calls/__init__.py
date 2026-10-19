@@ -11,11 +11,12 @@ import sys
 if sys.version_info < (3, 11):
     raise ImportError("whatsapp_chatbot_python.calls requires Python 3.11 or newer")
 
-from .contracts import CallExecutor, TransitionCallback
+from .contracts import CallExecutor, IncomingCallExecutor, TransitionCallback
 from .models import (
     ACTIVE_STATES,
     TERMINAL_STATES,
     WAITING_STATES,
+    CallDirection,
     CallEndReason,
     CallEvent,
     CallExecutionResult,
@@ -27,8 +28,7 @@ from .models import (
 from .state_machine import CallStateMachine
 
 __all__ = [
-    "CallExecutor", "TransitionCallback", "CallEndReason", "CallEvent",
-    "CallExecutionResult", "CallSession", "CallState", "StateTransition",
-    "TransitionOutcome", "CallStateMachine", "ACTIVE_STATES",
-    "TERMINAL_STATES", "WAITING_STATES",
+    "CallExecutor", "IncomingCallExecutor", "TransitionCallback", "CallDirection", "CallEndReason", "CallEvent",
+    "CallExecutionResult", "CallSession", "CallState", "StateTransition", "TransitionOutcome", "CallStateMachine",
+    "ACTIVE_STATES", "TERMINAL_STATES", "WAITING_STATES",
 ]

@@ -1,4 +1,5 @@
 from fractions import Fraction
+import os
 from types import SimpleNamespace
 from unittest.mock import ANY, patch
 from whatsapp_chatbot_python.calls.playback_state_machine import PlaybackState
@@ -115,6 +116,17 @@ class VoiceSessionTest(unittest.IsolatedAsyncioTestCase):
             language="ru", on_error=self.failures.append,
         )
 
+    def test_missing_explicit_api_key_does_not_fall_back_to_environment(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "ambient-key"}):
+            with patch("whatsapp_chatbot_python.calls.realtime_voice.AsyncOpenAI") as openai_client:
+                with self.assertRaisesRegex(ValueError, "OpenAI API key is required"):
+                    VoiceBotSession(
+                        api_key=None, model="gpt-realtime-2.1", voice="marin",
+                        language="en", on_error=self.failures.append,
+                    )
+
+        openai_client.assert_not_called()
+
     async def asyncTearDown(self):
         await self.voice.close()
 
@@ -127,6 +139,22 @@ class VoiceSessionTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([a for a, _ in actions], ["update", "greet"])
         self.assertEqual(actions[0][1]["session"]["audio"]["input"]["format"]["rate"], 24_000)
+
+    async def test_custom_greeting_is_used_once(self):
+        voice = VoiceBotSession(
+            api_key="test", model="gpt-realtime-2.1", voice="marin",
+            language="ru", greeting_text="Здравствуйте! Что хотите обсудить?",
+            on_error=self.failures.append,
+        )
+        try:
+            await voice.start()
+            await voice.greet_once()
+            await voice.greet_once()
+            actions = self.client.connection.actions
+            self.assertEqual([action for action, _ in actions], ["update", "greet"])
+            self.assertIn("Здравствуйте! Что хотите обсудить?", actions[1][1]["response"]["instructions"])
+        finally:
+            await voice.close()
 
     async def test_supported_languages_configure_voice_and_greeting(self):
         for code, language in {

@@ -31,8 +31,10 @@ assert "whatsapp_chatbot_python.calls" not in sys.modules
     def test_contracts_do_not_load_call_implementation(self):
         self.run_script('''
 import sys
-from whatsapp_chatbot_python.calls import CallSession, CallStateMachine
+from whatsapp_chatbot_python.calls import CallDirection, CallSession, CallStateMachine, IncomingCallExecutor
 assert CallSession("sender", "chat", "en").state == "triggered"
+assert CallSession("sender", "chat", "en").direction == CallDirection.OUTGOING
+assert IncomingCallExecutor.__name__ == "IncomingCallExecutor"
 assert "whatsapp_chatbot_python.calls.service" not in sys.modules
 assert "whatsapp_chatbot_python.calls.realtime_voice" not in sys.modules
 assert "openai" not in sys.modules

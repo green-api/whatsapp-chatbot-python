@@ -1,7 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from time import monotonic
 from enum import StrEnum
+from math import isfinite
 from pathlib import Path
 from uuid import uuid4
 
@@ -26,6 +28,11 @@ class CallState(StrEnum):
     FAILED = "failed"
 
 
+class CallDirection(StrEnum):
+    OUTGOING = "outgoing"
+    INCOMING = "incoming"
+
+
 class CallEvent(StrEnum):
     ENQUEUED = "enqueued"
     DEQUEUED = "dequeued"
@@ -39,6 +46,9 @@ class CallEvent(StrEnum):
     HANGUP_CONFIRMED = "hangup_confirmed"
     SHUTDOWN_REQUESTED = "shutdown_requested"
     INTERNAL_ERROR = "internal_error"
+    INCOMING_ACCEPTED = "incoming_accepted"
+    INCOMING_EXPIRED = "incoming_expired"
+    CALLER_LEFT = "caller_left"
 
 
 class CallEndReason(StrEnum):
@@ -49,6 +59,8 @@ class CallEndReason(StrEnum):
     ERROR = "error"
     SHUTDOWN = "shutdown"
     USER_CANCELLED = "user_cancelled"
+    INCOMING_EXPIRED = "incoming_expired"
+    CALLER_LEFT = "caller_left"
 
 
 class TransitionOutcome(StrEnum):
@@ -98,6 +110,28 @@ class CallSession:
     ended_at: datetime | None = None
     bridge_ready: bool = False
     remote_accepted: bool = False
+    direction: CallDirection = CallDirection.OUTGOING
+    incoming_deadline: float | None = None
+    greeting_text: str | None = None
+    incoming_accept_completed: bool = False
+
+    @classmethod
+    def incoming(
+        cls, *, sender_id: str, call_id: str, language: str,
+        incoming_deadline: float, chat_id: str | None = None,
+        greeting_text: str | None = None,
+    ) -> CallSession:
+        if not sender_id or not call_id:
+            raise ValueError("Incoming calls require sender_id and call_id")
+
+        if not isfinite(incoming_deadline) or incoming_deadline <= monotonic():
+            raise ValueError("Incoming call deadline has expired")
+
+        return cls(
+            sender_id=sender_id, chat_id=chat_id or sender_id, language=language,
+            call_id=call_id, direction=CallDirection.INCOMING,
+            incoming_deadline=incoming_deadline, greeting_text=greeting_text,
+        )
 
 
 @dataclass(frozen=True, slots=True)

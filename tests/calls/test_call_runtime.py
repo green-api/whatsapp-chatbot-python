@@ -2,6 +2,7 @@ from whatsapp_chatbot_python.calls.models import CallState
 from whatsapp_chatbot_python.calls.runtime import CallRuntime, RuntimeEvent, RuntimeEventType
 import asyncio
 import unittest
+from time import monotonic
 
 
 class CallRuntimeTest(unittest.IsolatedAsyncioTestCase):
@@ -23,6 +24,13 @@ class CallRuntimeTest(unittest.IsolatedAsyncioTestCase):
     async def test_empty_queue_returns_none_when_timer_expires(self) -> None:
         runtime = CallRuntime(0, 1, 1)
         runtime.start_ringing()
+        self.assertIsNone(await runtime.next_event(CallState.RINGING))
+
+    async def test_incoming_deadline_is_absolute(self) -> None:
+        runtime = CallRuntime(30, 1, 1)
+        deadline = monotonic() + 0.01
+        runtime.start_ringing(deadline=deadline)
+        self.assertEqual(runtime.ring_deadline, deadline)
         self.assertIsNone(await runtime.next_event(CallState.RINGING))
 
     async def test_cancellation_is_not_swallowed_when_event_becomes_ready(self) -> None:
