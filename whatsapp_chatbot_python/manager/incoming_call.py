@@ -110,9 +110,6 @@ class IncomingCallHandler(Handler[IncomingCallNotification]):
         accepted_statuses = self.filters.get("status")
 
         if accepted_statuses is not None:
-            if isinstance(accepted_statuses, str):
-                accepted_statuses = [accepted_statuses]
-
             if notification.call.status not in accepted_statuses:
                 return False
 

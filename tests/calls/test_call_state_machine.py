@@ -119,7 +119,9 @@ class CallStateMachineTest(unittest.TestCase):
         ):
             self.apply(event)
 
-        self.assertEqual(self.apply(CallEvent.REMOTE_IDLE), CallState.RING_TIMEOUT)
+        # The runner confirms the timeout after its remote finish operation.
+        self.assertEqual(self.apply(CallEvent.REMOTE_IDLE), CallState.ENDING)
+        self.assertEqual(self.apply(CallEvent.HANGUP_CONFIRMED), CallState.RING_TIMEOUT)
 
     def test_late_event_cannot_change_terminal_state(self) -> None:
         self.test_remote_idle_is_rejected_before_answer()
@@ -158,7 +160,7 @@ class CallStateMachineTest(unittest.TestCase):
             error_code="shutdown",
         )
         self.assertTrue(result.applied)
-        self.assertEqual(self.session.state, CallState.FAILED)
+        self.assertEqual(self.session.state, CallState.CANCELLED)
         self.assertEqual(self.session.end_reason, CallEndReason.SHUTDOWN)
 
     def test_all_terminal_states_ignore_late_events(self) -> None:
@@ -184,7 +186,7 @@ class CallStateMachineTest(unittest.TestCase):
         self.fsm.apply(session, CallEvent.ENQUEUED)
         self.fsm.apply(session, CallEvent.DEQUEUED)
         self.assertEqual(session.state, CallState.RINGING)
-        self.assertIsNone(session.dialing_at)
+        self.assertIsNotNone(session.started_at)
         self.assertIsNone(session.answered_at)
 
         self.fsm.apply(session, CallEvent.INCOMING_ACCEPTED)
@@ -200,7 +202,7 @@ class CallStateMachineTest(unittest.TestCase):
 
     def test_incoming_expiry_and_caller_left_from_queue(self) -> None:
         for event, state, reason in (
-            (CallEvent.INCOMING_EXPIRED, CallState.RING_TIMEOUT, CallEndReason.INCOMING_EXPIRED),
+            (CallEvent.INCOMING_EXPIRED, CallState.REJECTED, CallEndReason.INCOMING_EXPIRED),
             (CallEvent.CALLER_LEFT, CallState.REJECTED, CallEndReason.CALLER_LEFT),
         ):
             with self.subTest(event=event):

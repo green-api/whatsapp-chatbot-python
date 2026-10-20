@@ -149,6 +149,8 @@ class IncomingCallObserver(_TypedObserver[IncomingCallNotification]):
                     "Incoming-call status must be a string or a nonempty list of strings"
                 )
 
+            filters["status"] = statuses
+
         self.handlers.append(IncomingCallHandler(handler, **filters))
 
 

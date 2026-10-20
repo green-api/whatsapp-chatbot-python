@@ -568,16 +568,22 @@ async def call_once():
     fsm.apply(session, CallEvent.ENQUEUED)
     fsm.apply(session, CallEvent.DEQUEUED)
     result = await service.execute(session, fsm.apply)
-    try:
+    with result:
         print(session.state, session.end_reason, session.error_code)
         if result.recording_path is not None:
             print("MP3:", result.recording_path)
-    finally:
-        if result.recording_path is not None:
-            result.recording_path.unlink(missing_ok=True)
 
 asyncio.run(call_once())
 ```
+
+`with result:` удаляет невостребованный MP3 после использования. Метод
+`result.take_recording()` передаёт владение файлом приложению. Настройка
+`CallOptions(input_audio=InputAudioOptions(...))` ограничивает очередь аудио
+между RTC и голосовой моделью; переполнение завершает звонок. Таймаут очистки
+означает неподтверждённое закрытие ресурса. Сервис выставляет `healthy=False`
+и не принимает следующие звонки. Если закрытие сигнального соединения внутри
+установленного RTC SDK так и не завершилось, после проверки нужен перезапуск
+рабочего процесса.
 
 ### Принять входящий звонок
 

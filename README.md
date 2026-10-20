@@ -576,17 +576,22 @@ async def call_once():
     fsm.apply(session, CallEvent.ENQUEUED)
     fsm.apply(session, CallEvent.DEQUEUED)
     result = await service.execute(session, fsm.apply)
-    try:
+    with result:
         print(session.state, session.end_reason, session.error_code)
         if result.recording_path is not None:
             print("MP3:", result.recording_path)
-            # Upload or copy the recording here, before removing it.
-    finally:
-        if result.recording_path is not None:
-            result.recording_path.unlink(missing_ok=True)
+            # Upload or copy it here; the context removes the temporary file.
 
 asyncio.run(call_once())
 ```
+
+`with result:` removes an unclaimed MP3 after use. Call `result.take_recording()`
+to keep the file. `CallOptions(input_audio=InputAudioOptions(...))` configures the
+bounded queue from RTC audio to the voice model; a full queue fails the call.
+Cleanup timeouts mean resource closure is unconfirmed, not complete. The service
+then reports `healthy=False` and rejects subsequent calls. The installed RTC SDK
+can leave signaling open if its own close operation never finishes; restart the
+worker after investigating such a failure.
 
 ### Accept an incoming call
 
