@@ -422,9 +422,9 @@ class VoiceSessionTest(unittest.IsolatedAsyncioTestCase):
             def set_generation(self, generation):
                 self.generation = generation
 
-            def add_caller(self, pcm, generation):
+            def add_caller(self, pcm, generation, *, media_time=None):
                 if generation == self.generation:
-                    self.caller.append(pcm)
+                    self.caller.append((pcm, media_time))
 
             def add_bot(self, pcm, generation):
                 if generation == self.generation:
@@ -458,7 +458,7 @@ class VoiceSessionTest(unittest.IsolatedAsyncioTestCase):
             await sink.close()
             voice._queue_audio("item-1", bytes([1, 2]) * 480)
             await old_track.recv()
-            self.assertEqual(recorder.caller, [bytes(FRAME_BYTES)])
+            self.assertEqual(recorder.caller, [(bytes(FRAME_BYTES), 0.0)])
             self.assertEqual(recorder.bot, [bytes([1, 2]) * 480])
             await voice.new_output_track()
             await old_track.recv()

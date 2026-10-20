@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from array import array
+from math import isfinite
 from pathlib import Path
 from queue import Full, Queue
 from tempfile import TemporaryFile, NamedTemporaryFile
@@ -19,6 +20,8 @@ MAX_PENDING_CHUNKS = 256
 
 MIX_SAMPLES = 24 * 1000
 
+MP3_BIT_RATE = 96 * 1000
+
 
 class CallRecorder:
     def __init__(self, logger: logging.Logger) -> None:
@@ -31,6 +34,8 @@ class CallRecorder:
         self._caller = TemporaryFile()
         self._bot = TemporaryFile()
         self._lengths = {"caller": 0, "bot": 0}
+        self._next_offsets: dict[str, int | None] = {"caller": None, "bot": None}
+        self._caller_media_anchor: tuple[float, int] | None = None
         self._has_audio = False
 
     def start(self) -> None:
@@ -41,15 +46,18 @@ class CallRecorder:
             self._thread.start()
 
     def set_generation(self, generation: int) -> None:
-        self._generation = generation
+        if generation != self._generation:
+            self._generation = generation
+            self._next_offsets = {"caller": None, "bot": None}
+            self._caller_media_anchor = None
 
-    def add_caller(self, pcm: bytes, generation: int) -> None:
-        self._add("caller", pcm, generation)
+    def add_caller(self, pcm: bytes, generation: int, *, media_time: float | None = None) -> None:
+        self._add("caller", pcm, generation, media_time=media_time)
 
     def add_bot(self, pcm: bytes, generation: int) -> None:
         self._add("bot", pcm, generation)
 
-    def _add(self, side: str, pcm: bytes, generation: int) -> None:
+    def _add(self, side: str, pcm: bytes, generation: int, *, media_time: float | None = None) -> None:
         if self._started_at is None or self._failed.is_set() or generation != self._generation or not pcm:
             return
 
@@ -57,17 +65,36 @@ class CallRecorder:
             self._failed.set()
             return
 
-        # Incoming frames arrive after capture; place their start at the beginning
-        # of the received interval. The outgoing frame starts when recv() yields it.
+        samples = len(pcm) // 2
+
+        # Arrival time anchors each track. Later chunks follow sample counts so
+        # scheduling jitter cannot create holes or overwrite adjacent samples.
         elapsed = monotonic() - self._started_at
 
         if side == "caller":
-            elapsed -= len(pcm) / (2 * RATE)
+            elapsed -= samples / RATE
 
         offset = max(0, round(elapsed * RATE))
+        next_offset = self._next_offsets[side]
+
+        if next_offset is not None:
+            offset = next_offset
+
+        anchor = self._caller_media_anchor
+
+        if side == "caller" and media_time is not None and isfinite(media_time):
+            if anchor is None:
+                anchor = (media_time, offset)
+            else:
+                offset = max(offset, anchor[1] + round((media_time - anchor[0]) * RATE))
 
         try:
             self._queue.put_nowait((side, offset, pcm))
+
+            self._next_offsets[side] = offset + samples
+
+            if side == "caller":
+                self._caller_media_anchor = anchor
         except Full:
             self._failed.set()
             self._logger.warning("VoIP recording queue overflow")
@@ -130,6 +157,7 @@ class CallRecorder:
         with av.open(str(path), "w") as container:
             stream = container.add_stream("libmp3lame", rate=RATE)
             stream.layout = "mono"
+            stream.bit_rate = MP3_BIT_RATE
 
             for _ in range(0, length, MIX_SAMPLES):
                 count = min(MIX_SAMPLES, length - _)

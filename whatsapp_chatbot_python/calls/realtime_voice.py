@@ -108,7 +108,13 @@ class CallerAudioSink:
                     pcm = bytes(converted.planes[0])[:converted.samples * 2]
 
                     if self._voice.recorder is not None:
-                        self._voice.recorder.add_caller(pcm, self._generation)
+                        media_time = (
+                            float(converted.pts * converted.time_base)
+                            if converted.pts is not None and converted.time_base is not None
+                            else None
+                        )
+
+                        self._voice.recorder.add_caller(pcm, self._generation, media_time=media_time)
 
                     await self._voice.append_input(pcm)
         except MediaStreamError:
