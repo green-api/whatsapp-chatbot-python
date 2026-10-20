@@ -460,6 +460,27 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(FakeVoice.instances[0].options["greeting_text"], session.greeting_text)
         self.assertEqual(FakeVoice.instances[0].greetings, 1)
 
+    async def test_incoming_accepts_same_call_with_pn_and_lid_addresses(self):
+        FakeClient.initial_state = "inc-call"
+
+        for webhook_sender, rtc_sender in (
+            ("sender@c.us", "caller@lid"),
+            ("sender@lid", "sender@lid"),
+            ("sender@lid", "caller@c.us"),
+        ):
+            with self.subTest(webhook_sender=webhook_sender, rtc_sender=rtc_sender):
+                FakeClient.instances.clear()
+                FakeVoice.instances.clear()
+                FakeClient.initial_info = CallInfo("call-1", rtc_sender, None)
+                session, transition = self.make_incoming_session()
+                session.sender_id = webhook_sender
+
+                await self.make_service().execute(session, transition)
+
+                self.assertEqual(FakeClient.instances[0].actions[:3], ["open", "accept", "bridge"])
+                self.assertEqual(session.state, CallState.REMOTE_ENDED)
+                self.assertIsNotNone(session.answered_at)
+
     async def test_voice_service_uses_explicit_credentials_despite_environment(self):
         import os
 
@@ -685,7 +706,7 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("response lost")
 
         async def server_state(client):
-            return CallStateDetail("on-call", info=client.initial_info)
+            return CallStateDetail("on-call", info=CallInfo("call-1", "caller@lid", None))
 
         with patch.object(FakeClient, "acceptAsync", failed_accept), \
              patch.object(FakeClient, "getStateAsync", server_state):
@@ -795,7 +816,7 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_incoming_bridge_failure_hangs_up_matching_call(self):
         FakeClient.initial_state = "inc-call"
-        FakeClient.initial_info = CallInfo("call-1", "sender@c.us", None)
+        FakeClient.initial_info = CallInfo("call-1", "caller@lid", None)
         FakeClient.bridge_error = True
         FakeClient.remote_hangup = False
         session, transition = self.make_incoming_session()
@@ -883,7 +904,7 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.end_reason, CallEndReason.SHUTDOWN)
         self.assertEqual(FakeClient.instances[0].actions, ["open", "accept", "reject"])
 
-    async def test_reject_incoming_checks_both_call_id_and_sender(self):
+    async def test_reject_incoming_matches_call_id_across_pn_and_lid(self):
         api = Mock()
         api.voip.getStateAsync = AsyncMock(return_value=CallStateDetail(
             "inc-call", info=CallInfo("new-call", "sender@c.us", None),
@@ -895,17 +916,20 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
             api.voip.rejectAsync.assert_not_awaited()
 
             api.voip.getStateAsync.return_value = CallStateDetail(
-                "inc-call", info=CallInfo("call-1", "other@c.us", None),
-            )
-            self.assertFalse(await service.reject_incoming("call-1", "sender@c.us"))
-            api.voip.rejectAsync.assert_not_awaited()
-
-            api.voip.getStateAsync.return_value = CallStateDetail(
-                "inc-call", info=CallInfo("call-1", "sender@c.us", None),
+                "inc-call", info=CallInfo("call-1", "caller@lid", None),
             )
             self.assertTrue(await service.reject_incoming("call-1", "sender@c.us"))
             api.voip.rejectAsync.assert_awaited_once()
-        self.assertEqual(api.session.close.call_count, 3)
+
+            api.voip.getStateAsync.return_value = CallStateDetail(
+                "inc-call", info=CallInfo("call-2", "caller@lid", None),
+            )
+            self.assertFalse(await service.reject_incoming("call-1", "sender@c.us"))
+            api.voip.rejectAsync.assert_awaited_once()
+
+            self.assertFalse(await service.reject_incoming("", "sender@c.us"))
+            api.voip.rejectAsync.assert_awaited_once()
+        self.assertEqual(api.session.close.call_count, 4)
 
     async def test_stop_before_execute_does_not_start_a_call(self):
         session, transition = self.make_session()

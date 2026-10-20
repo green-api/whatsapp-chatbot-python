@@ -153,14 +153,14 @@ class WhatsAppCallService:
         return True
 
     async def reject_incoming(self, call_id: str, sender_id: str) -> bool:
-        """Reject a waiting offer only while it still matches the live call."""
+        """Reject a waiting offer with this call ID on the configured instance."""
 
         api = GreenAPI(self._id_instance, self._api_token_instance, host=self._api_url)
 
         try:
             state = await asyncio.wait_for(api.voip.getStateAsync(), MATCHING_CALL_TIMEOUT_SECONDS)
 
-            if not self._matches_incoming(state, call_id, sender_id, "inc-call"):
+            if not self._matches_incoming(state, call_id, "inc-call"):
                 return False
 
             await asyncio.wait_for(api.voip.rejectAsync(), MATCHING_CALL_TIMEOUT_SECONDS)
@@ -424,7 +424,7 @@ class WhatsAppCallService:
 
         if execution.session.direction == CallDirection.INCOMING:
             if state.state == "on-call" and WhatsAppCallService._matches_incoming(
-                state, execution.session.call_id, execution.session.sender_id, "on-call",
+                state, execution.session.call_id, "on-call",
             ):
                 if execution.incoming_answered_at is None:
                     execution.incoming_answered_at = monotonic()
@@ -444,7 +444,7 @@ class WhatsAppCallService:
                 execution.incoming_end_event.set()
 
             if state.state in {"inc-call", "on-call"} and not WhatsAppCallService._matches_incoming(
-                state, execution.session.call_id, execution.session.sender_id, state.state,
+                state, execution.session.call_id, state.state,
             ):
                 execution.incoming_ended = True
                 execution.incoming_left_at = monotonic()
@@ -458,12 +458,13 @@ class WhatsAppCallService:
             execution.runtime.events.put_nowait(RuntimeEvent.server_state(state.state, state.reason))
 
     @staticmethod
-    def _matches_incoming(state: ApiCallState | None, call_id: str | None, sender_id: str, kind: str) -> bool:
+    def _matches_incoming(state: ApiCallState | None, call_id: str | None, kind: str) -> bool:
         info = getattr(state, "info", None)
 
         return (
-            getattr(state, "state", None) == kind and info is not None
-            and info.id == call_id and info.wid == sender_id
+            isinstance(call_id, str) and bool(call_id)
+            and getattr(state, "state", None) == kind and info is not None
+            and info.id == call_id
         )
 
     @staticmethod
@@ -581,7 +582,7 @@ class WhatsAppCallService:
             execution.transition(session, CallEvent.CALLER_LEFT)
             return
 
-        if not self._matches_incoming(state, session.call_id, session.sender_id, "inc-call"):
+        if not self._matches_incoming(state, session.call_id, "inc-call"):
             execution.transition(session, CallEvent.CALLER_LEFT)
             return
 
@@ -676,7 +677,7 @@ class WhatsAppCallService:
         except Exception:
             raise accept_error
 
-        if self._matches_incoming(state, session.call_id, session.sender_id, "on-call"):
+        if self._matches_incoming(state, session.call_id, "on-call"):
             # The REST response failed, but the server confirms this call was answered.
             execution.incoming_answered_at = monotonic()
 
@@ -684,7 +685,7 @@ class WhatsAppCallService:
             execution.runtime.remote_accepted(session.bridge_ready)
 
             return True
-        if not self._matches_incoming(state, session.call_id, session.sender_id, "inc-call"):
+        if not self._matches_incoming(state, session.call_id, "inc-call"):
             execution.transition(session, CallEvent.CALLER_LEFT)
             return False
 
@@ -952,11 +953,11 @@ class WhatsAppCallService:
         state = await asyncio.wait_for(api.voip.getStateAsync(), MATCHING_CALL_TIMEOUT_SECONDS)
 
         if WhatsAppCallService._matches_incoming(
-            state, session.call_id, session.sender_id, "inc-call",
+            state, session.call_id, "inc-call",
         ):
             await asyncio.wait_for(api.voip.rejectAsync(), MATCHING_CALL_TIMEOUT_SECONDS)
         elif WhatsAppCallService._matches_incoming(
-            state, session.call_id, session.sender_id, "on-call",
+            state, session.call_id, "on-call",
         ):
             await asyncio.wait_for(api.voip.hangUpAsync(), MATCHING_CALL_TIMEOUT_SECONDS)
 
