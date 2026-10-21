@@ -1,77 +1,160 @@
-from array import array
-from unittest.mock import patch
-from queue import Full
-from whatsapp_chatbot_python.calls.recording import CallRecorder, RATE
-import logging
+"""MP3, PCM timing, and recording ownership guarantees."""
+
+import asyncio
+import tempfile
 import unittest
+from array import array
+from fractions import Fraction
+from io import BytesIO
+from pathlib import Path
+from threading import Event
+from unittest.mock import patch
+
 import av
+from aiortc.mediastreams import MediaStreamError
+
+from whatsapp_chatbot_python.calls.audio import CallerSink, RecordingTap
+from whatsapp_chatbot_python.calls.models import CallExecutionResult, PCM, PcmChunk, RecordingOptions
+from whatsapp_chatbot_python.calls.recorder import CallRecorder, Mp3Encoder, Track
 
 
-def pcm(value: int, samples: int) -> bytes:
+def pcm(value, samples=PCM.samples_per_frame):
     return array("h", [value] * samples).tobytes()
 
 
-class CallRecordingTest(unittest.TestCase):
-    def test_mixes_both_sides_and_keeps_pause_and_reconnect(self) -> None:
+class RecordingTest(unittest.IsolatedAsyncioTestCase):
+    async def test_result_context_releases_or_transfers_recording(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "call.mp3"
+            path.write_bytes(b"recording")
+
+            with CallExecutionResult(path) as result:
+                self.assertEqual(result.recording_path, path)
+
+            self.assertFalse(path.exists())
+            self.assertIsNone(result.recording_path)
+
+            path.write_bytes(b"recording")
+            with CallExecutionResult(path) as result:
+                self.assertEqual(result.take_recording(), path)
+
+            self.assertTrue(path.exists())
+            path.unlink()
+
+    async def test_real_mp3_contains_both_sides_and_caller_owns_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = CallRecorder(RecordingOptions(directory=Path(directory)))
+            recorder.write(Track.CALLER, PcmChunk(0, pcm(2000, PCM.rate // 4)))
+            recorder.write(Track.BOT, PcmChunk(0, pcm(3000, PCM.rate // 4)))
+            exported = await recorder.finish()
+            self.assertIsNotNone(exported)
+            self.assertTrue(exported.exists())
+            self.assertEqual(exported, recorder.take())
+            await recorder.close()
+            self.assertTrue(exported.exists(), "ownership transferred to caller")
+            with av.open(str(exported)) as container:
+                frames = list(container.decode(audio=0))
+            self.assertTrue(frames)
+            self.assertGreater(sum(frame.samples for frame in frames), PCM.rate // 5)
+            exported.unlink()
+
+    async def test_mixer_adds_tracks_and_clips_without_wraparound(self):
+        encoder = Mp3Encoder(RecordingOptions(export_block_samples=4))
+        left = BytesIO(pcm(20000, 4))
+        right = BytesIO(pcm(20000, 4))
+        mixed = array("h")
+        mixed.frombytes(encoder._mix_block({Track.CALLER: left, Track.BOT: right}))
+        self.assertEqual(list(mixed), [32767] * 4)
+
+    async def test_no_audio_or_capture_failure_returns_no_recording(self):
+        recorder = CallRecorder(RecordingOptions())
+        self.assertIsNone(await recorder.finish())
+        await recorder.close()
+
+        recorder = CallRecorder(RecordingOptions())
+        with patch.object(recorder._capture, "write", side_effect=BufferError("full")):
+            recorder.write(Track.CALLER, PcmChunk(0, pcm(1000)))
+        self.assertIsNone(await recorder.finish())
+        await recorder.close()
+
+    async def test_mp3_export_does_not_block_event_loop(self):
+        started, release = Event(), Event()
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = CallRecorder(RecordingOptions(directory=Path(directory)))
+            recorder.write(Track.CALLER, PcmChunk(0, pcm(1000)))
+
+            def slow_encode(tracks, path):
+                started.set()
+                release.wait(1)
+                path.write_bytes(b"mp3 placeholder")
+
+            with patch.object(recorder._encoder, "encode", side_effect=slow_encode):
+                task = asyncio.create_task(recorder.finish())
+                try:
+                    self.assertTrue(await asyncio.to_thread(started.wait, 0.5))
+                    await asyncio.sleep(0.005)
+                    self.assertFalse(task.done(), "export should still run on a worker thread")
+                finally:
+                    release.set()
+                exported = await asyncio.wait_for(task, 0.5)
+                self.assertEqual(exported, recorder.take())
+                exported.unlink()
+                await recorder.close()
+
+    async def test_callback_delay_does_not_insert_false_silence(self):
+        class Capture:
+            def __init__(self):
+                self.chunks = []
+
+            def write(self, track, chunk):
+                self.chunks.append(chunk)
+
         clock = [0.0]
-        recorder = CallRecorder(logging.getLogger("recording-test"))
+        capture = Capture()
+        with patch("whatsapp_chatbot_python.calls.audio.monotonic", side_effect=lambda: clock[0]):
+            tap = RecordingTap(capture)
+            tap.activate()
+            tap.write(Track.BOT, pcm(1000))
+            clock[0] = 0.1  # Callback jitter is not a media gap.
+            tap.write(Track.BOT, pcm(2000))
+        self.assertEqual(capture.chunks[1].position - capture.chunks[0].position,
+                         PCM.samples_per_frame)
 
-        with patch("whatsapp_chatbot_python.calls.recording.monotonic", side_effect=lambda: clock[0]):
-            recorder.set_generation(1)
-            recorder.start()
+    async def test_caller_media_timestamp_gap_is_kept_without_callback_jitter(self):
+        """RED: a real media gap must be represented in the captured timeline."""
+        class Capture:
+            def __init__(self):
+                self.chunks = []
 
-            clock[0] = 0.1
+            def write(self, track, chunk):
+                self.chunks.append((track, chunk))
 
-            recorder.add_caller(pcm(4000, RATE // 10), 1)  # capture starts at zero
+            def disable(self, error):
+                raise AssertionError(error)
 
-            clock[0] = 0.0
+        class InputTrack:
+            def __init__(self):
+                self.index = 0
 
-            recorder.add_bot(pcm(3000, RATE // 10), 1)
-            recorder.set_generation(2)
+            async def recv(self):
+                if self.index == 2:
+                    raise MediaStreamError
+                frame = av.AudioFrame(format="s16", layout="mono", samples=PCM.samples_per_frame)
+                frame.planes[0].update(pcm(1000))
+                frame.sample_rate = PCM.rate
+                frame.pts = (0, PCM.rate // 10)[self.index]
+                frame.time_base = Fraction(1, PCM.rate)
+                self.index += 1
+                return frame
 
-            clock[0] = 0.2
+        class Sink:
+            async def write_audio(self, data):
+                pass
 
-            recorder.add_bot(pcm(10000, RATE // 10), 1)  # old bridge ignored
-            recorder.add_bot(pcm(5000, RATE // 10), 2)
-
-            path = recorder.finish()
-
-        self.assertIsNotNone(path)
-
-        try:
-            with av.open(str(path)) as container:
-                frames = [frame for packet in container.demux(audio=0) for frame in packet.decode()]
-
-            converted = av.AudioResampler(format="s16", layout="mono", rate=RATE)
-            samples = array("h")
-
-            for frame in frames:
-                for output in converted.resample(frame):
-                    samples.frombytes(bytes(output.planes[0])[:output.samples * 2])
-
-            # MP3 is lossy; check broad levels in each time segment.
-            def level(start, end):
-                section = samples[int(start * RATE):int(end * RATE)]
-                return sum(section) / len(section)
-
-            self.assertGreater(level(0.03, 0.07), 5500)
-            self.assertLess(abs(level(0.13, 0.17)), 500)
-            self.assertGreater(level(0.23, 0.27), 3500)
-            self.assertLess(level(0.23, 0.27), 8000)
-        finally:
-            path.unlink(missing_ok=True)
-
-    def test_no_audio_or_queue_overflow_disables_recording(self) -> None:
-        recorder = CallRecorder(logging.getLogger("recording-test"))
-
-        self.assertIsNone(recorder.finish())
-
-        recorder = CallRecorder(logging.getLogger("recording-test"))
-
-        recorder.set_generation(1)
-        recorder.start()
-
-        with patch.object(recorder._queue, "put_nowait", side_effect=Full):
-            recorder.add_bot(pcm(1000, 480), 1)
-
-        self.assertIsNone(recorder.finish())
+        capture = Capture()
+        tap = RecordingTap(capture)
+        tap.activate()
+        await CallerSink(Sink(), tap, lambda event: None)._consume(InputTrack())
+        positions = [chunk.position for track, chunk in capture.chunks if track == Track.CALLER]
+        self.assertEqual(len(positions), 2)
+        self.assertEqual(positions[1] - positions[0], PCM.rate // 10)

@@ -1,194 +1,183 @@
-from __future__ import annotations
-from collections.abc import Callable
+"""Pure transition planning followed by a single, explicit commit."""
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Callable
 
 from .models import (
-    CallEndReason,
-    CallEvent,
+    utc_now,
+    CallDirection,
+    CallEndReason as Reason,
+    CallEvent as Event,
     CallSession,
-    CallState,
+    CallState as State,
     StateTransition,
     TERMINAL_STATES,
-    TransitionOutcome,
-    utc_now,
 )
 
 
-TransitionTarget = CallState | Callable[[CallSession], CallState]
-
-
-@dataclass(frozen=True, slots=True)
-class TransitionRule:
-    target: TransitionTarget
-
-    def resolve(self, session: CallSession) -> CallState:
-        if callable(self.target):
-            return self.target(session)
-
-        return self.target
-
-
-def _bridge_ready_while_ringing(session: CallSession) -> CallState:
-    if session.remote_accepted:
-        return CallState.IN_CALL
-
-    return CallState.RINGING
-
-
-def _remote_accepted_while_ringing(session: CallSession) -> CallState:
-    if session.bridge_ready:
-        return CallState.IN_CALL
-
-    return CallState.CONNECTING
-
-
-def _ending_target(session: CallSession) -> CallState:
-    return {
-        CallEndReason.RING_TIMEOUT: CallState.RING_TIMEOUT,
-        CallEndReason.TALK_TIMEOUT: CallState.TALK_TIMEOUT,
-    }.get(session.end_reason, CallState.FAILED)
-
-
-_TRANSITION_RULES: dict[tuple[CallState, CallEvent], TransitionRule] = {
-    (CallState.TRIGGERED, CallEvent.ENQUEUED): TransitionRule(CallState.QUEUED),
-    (CallState.QUEUED, CallEvent.DEQUEUED): TransitionRule(CallState.DIALING),
-    (CallState.QUEUED, CallEvent.CANCEL_REQUESTED): TransitionRule(CallState.CANCELLED),
-    (CallState.DIALING, CallEvent.DIAL_ACCEPTED): TransitionRule(CallState.RINGING),
-    (CallState.DIALING, CallEvent.REMOTE_IDLE): TransitionRule(CallState.REJECTED),
-
-    (CallState.RINGING, CallEvent.BRIDGE_READY): TransitionRule(
-        _bridge_ready_while_ringing
-    ),
-
-    (CallState.RINGING, CallEvent.REMOTE_ACCEPTED): TransitionRule(
-        _remote_accepted_while_ringing
-    ),
-
-    (CallState.RINGING, CallEvent.REMOTE_IDLE): TransitionRule(CallState.REJECTED),
-
-    (CallState.RINGING, CallEvent.RING_TIMER_EXPIRED): TransitionRule(
-        CallState.ENDING
-    ),
-
-    (CallState.CONNECTING, CallEvent.BRIDGE_READY): TransitionRule(CallState.IN_CALL),
-
-    # The remote party already answered; report a completed call even if the
-    # bridge never became ready. No recording is created until IN_CALL.
-    (CallState.CONNECTING, CallEvent.REMOTE_IDLE): TransitionRule(
-        CallState.REMOTE_ENDED
-    ),
-
-    (CallState.CONNECTING, CallEvent.TALK_TIMER_EXPIRED): TransitionRule(
-        CallState.ENDING
-    ),
-
-    (CallState.IN_CALL, CallEvent.REMOTE_IDLE): TransitionRule(CallState.REMOTE_ENDED),
-    (CallState.IN_CALL, CallEvent.TALK_TIMER_EXPIRED): TransitionRule(CallState.ENDING),
-    (CallState.ENDING, CallEvent.HANGUP_CONFIRMED): TransitionRule(_ending_target),
-    (CallState.ENDING, CallEvent.REMOTE_IDLE): TransitionRule(_ending_target),
+_FINAL_STATE = {
+    Reason.RING_TIMEOUT: State.RING_TIMEOUT,
+    Reason.TALK_TIMEOUT: State.TALK_TIMEOUT,
+    Reason.SHUTDOWN: State.CANCELLED,
+    Reason.USER_CANCELLED: State.CANCELLED,
 }
 
 
-for nonterminal_state in CallState:
-    if nonterminal_state in TERMINAL_STATES:
-        continue
+@dataclass(frozen=True)
+class Change:
+    target: State
+    reason: Reason | None = None
+    queued: bool = False
+    started: bool = False
+    answered: bool = False
+    bridge: bool = False
+    accepted: bool = False
 
-    for failure_event in (
-        CallEvent.INTERNAL_ERROR,
-        CallEvent.SHUTDOWN_REQUESTED,
-    ):
-        _TRANSITION_RULES[(nonterminal_state, failure_event)] = TransitionRule(
-            CallState.FAILED
+
+Resolver = Callable[[CallSession], Change]
+
+
+@dataclass(frozen=True)
+class TransitionRule:
+    change: Change | Resolver
+    direction: CallDirection | None = None
+
+    def resolve(self, session: CallSession) -> Change:
+        return self.change(session) if callable(self.change) else self.change
+
+
+def _dequeue(session: CallSession) -> Change:
+    target = {
+        CallDirection.INCOMING: State.RINGING,
+        CallDirection.OUTGOING: State.DIALING,
+    }[session.direction]
+
+    return Change(target, started=True)
+
+
+def _answer(session: CallSession) -> Change:
+    return Change(
+        State.IN_CALL if session.bridge_ready else State.CONNECTING,
+        answered=True,
+    )
+
+
+def _bridge(session: CallSession) -> Change:
+    target = State.IN_CALL if session.remote_accepted else session.state
+    return Change(target, bridge=True)
+
+
+def _idle(session: CallSession) -> Change:
+    if session.remote_accepted:
+        return Change(
+            State.REMOTE_ENDED,
+            Reason.REMOTE_HANGUP,
         )
+
+    return Change(State.REJECTED, Reason.REMOTE_REJECTED)
+
+
+def _hangup(session: CallSession) -> Change:
+    return Change(_FINAL_STATE.get(session.end_reason, State.FAILED))
+
+
+def _rules() -> dict[tuple[State, Event], TransitionRule]:
+    rules = {
+        (State.TRIGGERED, Event.ENQUEUED): TransitionRule(Change(State.QUEUED, queued=True)),
+        (State.QUEUED, Event.DEQUEUED): TransitionRule(_dequeue),
+        (State.DIALING, Event.DIAL_ACCEPTED): TransitionRule(Change(State.RINGING)),
+        (State.ENDING, Event.HANGUP_CONFIRMED): TransitionRule(_hangup),
+        (State.IN_CALL, Event.TALK_TIMER_EXPIRED): TransitionRule(Change(State.ENDING, Reason.TALK_TIMEOUT)),
+    }
+
+    active = (State.DIALING, State.RINGING, State.CONNECTING, State.IN_CALL)
+
+    for state in active:
+        rules[state, Event.BRIDGE_READY] = TransitionRule(_bridge)
+        rules[state, Event.REMOTE_IDLE] = TransitionRule(_idle)
+        rules[state, Event.INCOMING_ACCEPTED] = TransitionRule(Change(state, accepted=True), CallDirection.INCOMING)
+
+    for state in (State.DIALING, State.RINGING):
+        rules[state, Event.REMOTE_ACCEPTED] = TransitionRule(_answer)
+        rules[state, Event.RING_TIMER_EXPIRED] = TransitionRule(Change(State.ENDING, Reason.RING_TIMEOUT))
+
+    for state in set(State) - TERMINAL_STATES:
+        rules[state, Event.INTERNAL_ERROR] = TransitionRule(Change(State.FAILED, Reason.ERROR))
+        rules[state, Event.SHUTDOWN_REQUESTED] = TransitionRule(Change(State.CANCELLED, Reason.SHUTDOWN))
+        rules[state, Event.CANCEL_REQUESTED] = TransitionRule(Change(State.CANCELLED, Reason.USER_CANCELLED))
+
+    for state in (State.TRIGGERED, State.QUEUED, State.RINGING):
+        rules[state, Event.INCOMING_EXPIRED] = TransitionRule(
+            Change(State.REJECTED, Reason.INCOMING_EXPIRED),
+            CallDirection.INCOMING,
+        )
+
+        rules[state, Event.CALLER_LEFT] = TransitionRule(
+            Change(State.REJECTED, Reason.CALLER_LEFT),
+            CallDirection.INCOMING,
+        )
+
+    return rules
+
+
+_RULES = _rules()
 
 
 class CallStateMachine:
-    """
-    Apply the formal call transition table and its associated session data.
-
-    Duplicate, late and out-of-order events are intentionally ignored. An applied
-    event may update session data without changing state, for example an early
-    BRIDGE_READY event received while the remote side is still ringing.
-    """
-
     def apply(
         self,
         session: CallSession,
-        event: CallEvent,
+        event: Event,
         *,
         remote_reason: str | None = None,
         error_code: str | None = None,
     ) -> StateTransition:
-        previous = session.state
-
-        if previous in TERMINAL_STATES:
-            return self._ignored(previous, event)
-
-        rule = _TRANSITION_RULES.get((previous, event))
+        rule = self._find_rule(session, event)
 
         if rule is None:
-            return self._ignored(previous, event)
+            return StateTransition(session.state, session.state, event, False)
 
-        if remote_reason is not None:
-            session.remote_reason = remote_reason
+        change = rule.resolve(session)
 
-        if error_code is not None:
-            session.error_code = error_code
-
-        self._apply_event_data(session, event)
-
-        target = rule.resolve(session)
-
-        session.state = target
-
-        if target in TERMINAL_STATES:
-            session.ended_at = utc_now()
-
-        return StateTransition(
-            previous=previous,
-            current=target,
-            event=event,
-            outcome=TransitionOutcome.APPLIED,
-        )
+        return self._commit(session, event, change, utc_now(), remote_reason, error_code)
 
     @staticmethod
-    def _ignored(previous: CallState, event: CallEvent) -> StateTransition:
-        return StateTransition(
-            previous=previous,
-            current=previous,
-            event=event,
-            outcome=TransitionOutcome.IGNORED,
-        )
+    def _find_rule(session: CallSession, event: Event) -> TransitionRule | None:
+        rule = _RULES.get((session.state, event))
+
+        if rule is None or rule.direction not in (None, session.direction):
+            return None
+
+        return rule
 
     @staticmethod
-    def _apply_event_data(session: CallSession, event: CallEvent) -> None:
-        now = utc_now()
+    def _commit(
+        session: CallSession,
+        event: Event,
+        change: Change,
+        now: datetime, remote_reason: str | None,
+        error_code: str | None,
+    ) -> StateTransition:
+        previous = session.state
+        session.state = change.target
+        session.end_reason = change.reason or session.end_reason
+        session.remote_reason = remote_reason if remote_reason is not None else session.remote_reason
+        session.error_code = error_code if error_code is not None else session.error_code
 
-        if event == CallEvent.ENQUEUED:
-            session.queued_at = now
-        elif event == CallEvent.DEQUEUED:
-            session.dialing_at = now
-        elif event == CallEvent.CANCEL_REQUESTED:
-            session.end_reason = CallEndReason.USER_CANCELLED
-        elif event == CallEvent.REMOTE_ACCEPTED:
+        if change.queued:
+            session.queued_at = session.queued_at or now
+
+        if change.started:
+            session.started_at = session.started_at or now
+
+        if change.answered:
             session.remote_accepted = True
             session.answered_at = session.answered_at or now
-        elif event == CallEvent.BRIDGE_READY:
-            session.bridge_ready = True
-        elif event == CallEvent.RING_TIMER_EXPIRED:
-            session.end_reason = CallEndReason.RING_TIMEOUT
-        elif event == CallEvent.TALK_TIMER_EXPIRED:
-            session.end_reason = CallEndReason.TALK_TIMEOUT
-        elif event == CallEvent.REMOTE_IDLE:
-            CallStateMachine._apply_remote_idle(session)
-        elif event == CallEvent.SHUTDOWN_REQUESTED:
-            session.end_reason = CallEndReason.SHUTDOWN
-        elif event == CallEvent.INTERNAL_ERROR:
-            session.end_reason = CallEndReason.ERROR
 
-    @staticmethod
-    def _apply_remote_idle(session: CallSession) -> None:
-        if session.state in {CallState.DIALING, CallState.RINGING}:
-            session.end_reason = CallEndReason.REMOTE_REJECTED
-        elif session.state in {CallState.CONNECTING, CallState.IN_CALL}:
-            session.end_reason = CallEndReason.REMOTE_HANGUP
+        session.bridge_ready |= change.bridge
+        session.incoming_accept_completed |= change.accepted
+
+        if session.finished:
+            session.ended_at = session.ended_at or now
+
+        return StateTransition(previous, session.state, event, True)

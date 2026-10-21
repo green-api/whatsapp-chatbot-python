@@ -541,20 +541,25 @@ credentials:
 ```python
 import asyncio
 import logging
-import os
 
 from whatsapp_chatbot_python.calls import (
     CallEvent, CallSession, CallStateMachine,
 )
 from whatsapp_chatbot_python.calls.service import WhatsAppCallService
 
+id_instance = "ID_INSTANCE"
+api_token_instance = "API_TOKEN"
+openai_api_key = "OPENAI_KEY"
+realtime_model = "gpt-realtime-2.1"
+realtime_voice = "marin"
+
 service = WhatsAppCallService(
     api_url="https://api.green-api.com",
-    id_instance=os.environ["ID_INSTANCE"],
-    api_token_instance=os.environ["API_TOKEN_INSTANCE"],
-    openai_api_key=os.environ["OPENAI_API_KEY"],
-    realtime_model=os.environ["REALTIME_MODEL"],
-    realtime_voice=os.environ["REALTIME_VOICE"],
+    id_instance=id_instance,
+    api_token_instance=api_token_instance,
+    openai_api_key=openai_api_key,
+    realtime_model=realtime_model,
+    realtime_voice=realtime_voice,
     ring_timeout_seconds=30,
     talk_timeout_seconds=120,
     shutdown_timeout_seconds=10,
@@ -571,16 +576,53 @@ async def call_once():
     fsm.apply(session, CallEvent.ENQUEUED)
     fsm.apply(session, CallEvent.DEQUEUED)
     result = await service.execute(session, fsm.apply)
-    try:
+    with result:
         print(session.state, session.end_reason, session.error_code)
         if result.recording_path is not None:
             print("MP3:", result.recording_path)
-            # Upload or copy the recording here, before removing it.
-    finally:
-        if result.recording_path is not None:
-            result.recording_path.unlink(missing_ok=True)
+            # Upload or copy it here; the context removes the temporary file.
 
 asyncio.run(call_once())
+```
+
+`with result:` removes an unclaimed MP3 after use. Call `result.take_recording()`
+to keep the file. `CallOptions(input_audio=InputAudioOptions(...))` configures the
+bounded queue from RTC audio to the voice model; a full queue fails the call.
+Cleanup timeouts mean resource closure is unconfirmed, not complete. The service
+then reports `healthy=False` and rejects subsequent calls. The installed RTC SDK
+can leave signaling open if its own close operation never finishes; restart the
+worker after investigating such a failure.
+
+### Accept an incoming call
+
+The application owns its queue, offer deduplication and notification parsing. An incoming offer can share the same queue
+and worker as outgoing calls. Create its deadline when the offer arrives, using the time remaining from the offer
+timestamp. For example, a 60-second application limit becomes `monotonic() + remaining_seconds`; the library has no
+fixed incoming ring limit. The deadline includes time spent in the queue and in call setup. Coordinators can type their
+executor as `IncomingCallExecutor`, which extends the existing `CallExecutor` with the two incoming call-control
+methods.
+
+```python
+from time import monotonic
+from whatsapp_chatbot_python.calls import CallEvent, CallSession, CallStateMachine
+
+session = CallSession.incoming(
+    sender_id=caller_id,
+    call_id=call_id,
+    language="en",
+    incoming_deadline=monotonic() + remaining_seconds,
+    greeting_text="Hello! This is a WhatsApp demo call. What would you like to discuss?",
+)
+fsm = CallStateMachine()
+fsm.apply(session, CallEvent.ENQUEUED)
+app_queue.put(session)
+
+if monotonic() >= session.incoming_deadline:
+    fsm.apply(session, CallEvent.INCOMING_EXPIRED)
+    await service.reject_incoming(session.call_id, session.sender_id)
+else:
+    fsm.apply(session, CallEvent.DEQUEUED)
+    result = await service.execute(session, transition_under_app_lock)
 ```
 
 ## Service methods documentation

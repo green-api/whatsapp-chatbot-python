@@ -1,61 +1,97 @@
-from whatsapp_chatbot_python.calls.models import CallState
-from whatsapp_chatbot_python.calls.runtime import CallRuntime, RuntimeEvent, RuntimeEventType
+"""Mailbox and deadline semantics used by every call direction."""
+
 import asyncio
 import unittest
+from time import monotonic
+
+from whatsapp_chatbot_python.calls.call_runner import Events, Operations
+from whatsapp_chatbot_python.calls.models import (
+    Command, CommandCompleted, CommandFailed, DeadlineExpired, DeadlineKind,
+    Deadlines, StopRequested,
+)
 
 
-class CallRuntimeTest(unittest.IsolatedAsyncioTestCase):
-    async def test_queued_event_wins_over_expired_timer(self) -> None:
-        runtime = CallRuntime(
-            ring_timeout_seconds=0,
-            talk_timeout_seconds=1,
-            bridge_timeout_seconds=1,
-        )
-        runtime.start_ringing()
-        runtime.events.put_nowait(RuntimeEvent.bridge_ready())
+class RuntimeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_observation_before_deadline_wins(self):
+        events = Events()
+        deadlines = Deadlines()
+        event = StopRequested(observed_at=monotonic() - 1)
+        deadlines.arm(DeadlineKind.OFFER, monotonic() - 0.5)
+        events.emit(event)
+        self.assertIs(await events.receive(deadlines), event)
 
-        event = await runtime.next_event(CallState.RINGING)
+    async def test_observation_on_or_after_deadline_is_late(self):
+        for offset in (0, 0.01):
+            with self.subTest(offset=offset):
+                events = Events()
+                deadlines = Deadlines()
+                due = monotonic() - 1
+                deadlines.arm(DeadlineKind.OFFER, due)
+                event = StopRequested(observed_at=due + offset)
+                events.emit(event)
+                expired = await events.receive(deadlines)
+                self.assertIsInstance(expired, DeadlineExpired)
+                self.assertEqual(expired.kind, DeadlineKind.OFFER)
+                self.assertIs(await events.receive(deadlines), event)
 
-        self.assertIsNotNone(event)
-        self.assertEqual(event.type, RuntimeEventType.BRIDGE_READY)
+    async def test_empty_mailbox_returns_deadline(self):
+        events = Events()
+        deadlines = Deadlines()
+        deadlines.arm(DeadlineKind.RING, monotonic() + 0.001)
+        result = await asyncio.wait_for(events.receive(deadlines), 0.2)
+        self.assertEqual(result.kind, DeadlineKind.RING)
 
+    async def test_waiter_cancellation_is_not_swallowed(self):
+        events = Events()
+        deadlines = Deadlines()
+        task = asyncio.create_task(events.receive(deadlines))
+        await asyncio.sleep(0)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        events.close()
 
-    async def test_empty_queue_returns_none_when_timer_expires(self) -> None:
-        runtime = CallRuntime(0, 1, 1)
-        runtime.start_ringing()
-        self.assertIsNone(await runtime.next_event(CallState.RINGING))
+    async def test_event_from_another_thread_wakes_the_consumer(self):
+        events = Events()
+        event = StopRequested()
+        waiter = asyncio.create_task(events.receive(Deadlines()))
+        self.assertTrue(await asyncio.to_thread(events.emit, event))
+        self.assertIs(await asyncio.wait_for(waiter, 0.2), event)
+        events.close()
 
-    async def test_cancellation_is_not_swallowed_when_event_becomes_ready(self) -> None:
-        waiting = asyncio.Event()
+    async def test_named_operation_runs_once_and_reports_completion(self):
+        reported = []
+        operations = Operations(reported.append)
+        calls = 0
 
-        class ObservedQueue(asyncio.Queue):
-            async def get(self):
-                waiting.set()
-                return await super().get()
+        async def work():
+            nonlocal calls
+            calls += 1
 
-        runtime = CallRuntime(5, 1, 1, events=ObservedQueue())
-        runtime.start_ringing()
+        operations.start(Command.GREET, work, 1)
+        operations.start(Command.GREET, work, 1)
+        await asyncio.gather(*operations._tasks.values())
+        await operations.close()
+        self.assertEqual(calls, 1)
+        self.assertEqual([type(event) for event in reported], [CommandCompleted])
 
-        async def consume():
-            event = await runtime.next_event(CallState.RINGING)
-            # Allow cancellation to arrive even if the event was delivered first.
-            await asyncio.sleep(0)
-            return event
+    async def test_hung_operation_reports_timeout_and_is_cancelled(self):
+        reported = []
+        operations = Operations(reported.append)
+        entered = asyncio.Event()
+        cancelled = asyncio.Event()
 
-        task = asyncio.create_task(consume())
-        try:
-            await asyncio.wait_for(waiting.wait(), timeout=1)
-            runtime.events.put_nowait(RuntimeEvent.bridge_ready())
-            # Resume the queue reader, then cancel before wait_for's parent resumes.
-            asyncio.get_running_loop().call_soon(task.cancel, "caller cancelled")
-            with self.assertRaises(asyncio.CancelledError) as raised:
-                await asyncio.wait_for(task, timeout=1)
-            self.assertEqual(raised.exception.args, ("caller cancelled",))
-        finally:
-            if not task.done():
-                task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        async def hung():
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
 
-
-if __name__ == "__main__":
-    unittest.main()
+        operations.start(Command.DIAL, hung, 0.005)
+        await asyncio.wait_for(entered.wait(), 0.2)
+        await asyncio.wait_for(cancelled.wait(), 0.2)
+        await operations.close()
+        self.assertEqual(len(reported), 1)
+        self.assertIsInstance(reported[0], CommandFailed)
+        self.assertIsInstance(reported[0].error, TimeoutError)

@@ -2,12 +2,14 @@ from whatsapp_chatbot_python.calls.state_machine import CallStateMachine
 import unittest
 
 from whatsapp_chatbot_python.calls.models import (
+    CallDirection,
     CallEndReason,
     CallEvent,
     CallSession,
     CallState,
     TERMINAL_STATES,
 )
+from time import monotonic
 
 
 class CallStateMachineTest(unittest.TestCase):
@@ -117,7 +119,9 @@ class CallStateMachineTest(unittest.TestCase):
         ):
             self.apply(event)
 
-        self.assertEqual(self.apply(CallEvent.REMOTE_IDLE), CallState.RING_TIMEOUT)
+        # The runner confirms the timeout after its remote finish operation.
+        self.assertEqual(self.apply(CallEvent.REMOTE_IDLE), CallState.ENDING)
+        self.assertEqual(self.apply(CallEvent.HANGUP_CONFIRMED), CallState.RING_TIMEOUT)
 
     def test_late_event_cannot_change_terminal_state(self) -> None:
         self.test_remote_idle_is_rejected_before_answer()
@@ -156,7 +160,7 @@ class CallStateMachineTest(unittest.TestCase):
             error_code="shutdown",
         )
         self.assertTrue(result.applied)
-        self.assertEqual(self.session.state, CallState.FAILED)
+        self.assertEqual(self.session.state, CallState.CANCELLED)
         self.assertEqual(self.session.end_reason, CallEndReason.SHUTDOWN)
 
     def test_all_terminal_states_ignore_late_events(self) -> None:
@@ -172,6 +176,50 @@ class CallStateMachineTest(unittest.TestCase):
                     result = self.fsm.apply(session, event)
                     self.assertFalse(result.applied)
                     self.assertEqual(session.state, state)
+
+    def test_incoming_uses_existing_queue_and_answer_transitions(self) -> None:
+        session = CallSession.incoming(
+            sender_id="sender@c.us", call_id="call-1", language="ru",
+            incoming_deadline=monotonic() + 60,
+        )
+        self.assertEqual(session.direction, CallDirection.INCOMING)
+        self.fsm.apply(session, CallEvent.ENQUEUED)
+        self.fsm.apply(session, CallEvent.DEQUEUED)
+        self.assertEqual(session.state, CallState.RINGING)
+        self.assertIsNotNone(session.started_at)
+        self.assertIsNone(session.answered_at)
+
+        self.fsm.apply(session, CallEvent.INCOMING_ACCEPTED)
+        self.assertEqual(session.state, CallState.RINGING)
+        self.assertTrue(session.incoming_accept_completed)
+        self.assertIsNone(session.answered_at)
+
+        self.fsm.apply(session, CallEvent.REMOTE_ACCEPTED)
+        self.assertEqual(session.state, CallState.CONNECTING)
+        self.fsm.apply(session, CallEvent.BRIDGE_READY)
+        self.assertEqual(session.state, CallState.IN_CALL)
+        self.assertIsNotNone(session.answered_at)
+
+    def test_incoming_expiry_and_caller_left_from_queue(self) -> None:
+        for event, state, reason in (
+            (CallEvent.INCOMING_EXPIRED, CallState.REJECTED, CallEndReason.INCOMING_EXPIRED),
+            (CallEvent.CALLER_LEFT, CallState.REJECTED, CallEndReason.CALLER_LEFT),
+        ):
+            with self.subTest(event=event):
+                session = CallSession.incoming(
+                    sender_id="sender@c.us", call_id="call-1", language="en",
+                    incoming_deadline=monotonic() + 60,
+                )
+                self.fsm.apply(session, CallEvent.ENQUEUED)
+                self.fsm.apply(session, event)
+                self.assertEqual((session.state, session.end_reason), (state, reason))
+                self.assertFalse(self.fsm.apply(session, CallEvent.DEQUEUED).applied)
+
+    def test_incoming_only_events_do_not_change_outgoing_calls(self) -> None:
+        self.apply(CallEvent.ENQUEUED)
+        for event in (CallEvent.INCOMING_EXPIRED, CallEvent.CALLER_LEFT, CallEvent.INCOMING_ACCEPTED):
+            self.assertFalse(self.fsm.apply(self.session, event).applied)
+        self.assertEqual(self.session.state, CallState.QUEUED)
 
 
 if __name__ == "__main__":

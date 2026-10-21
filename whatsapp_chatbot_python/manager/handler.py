@@ -1,14 +1,14 @@
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, Callable, Dict, Generic, List, Optional, TYPE_CHECKING, TypeVar, Union
 
 from whatsapp_api_client_python.response import Response
 
 from ..filters import filters as event_filters
 
 if TYPE_CHECKING:
-    from .observer import Observer
+    from .observer import AbstractObserver
     from .state import AbstractStateManager
     from ..bot import GreenAPI
 
@@ -167,27 +167,28 @@ class Notification:
             )
 
 HandlerType = Callable[[Notification], Any]
+NotificationT = TypeVar("NotificationT", bound=Notification)
 
 
-class AbstractHandler(ABC):
-    handler: HandlerType
+class AbstractHandler(ABC, Generic[NotificationT]):
+    handler: Callable[[NotificationT], Any]
     filters: Dict[str, Any]
 
     @abstractmethod
-    def check_event(self, notification: Notification) -> bool:
+    def check_event(self, notification: NotificationT) -> bool:
         pass
 
     @abstractmethod
-    def execute_handler(self, observer: "Observer") -> bool:
+    def execute_handler(self, observer: "AbstractObserver[NotificationT]") -> bool:
         pass
 
 
-class Handler(AbstractHandler):
-    def __init__(self, handler: HandlerType, **filters: Any):
+class Handler(AbstractHandler[NotificationT], Generic[NotificationT]):
+    def __init__(self, handler: Callable[[NotificationT], Any], **filters: Any):
         self.handler = handler
         self.filters = filters
 
-    def check_event(self, notification: Notification) -> bool:
+    def check_event(self, notification: NotificationT) -> bool:
         for filter_name in self.filters.keys():
             filter_ = event_filters.get(filter_name)
             if filter_:
@@ -198,10 +199,8 @@ class Handler(AbstractHandler):
 
         return True
 
-    def execute_handler(self, observer: "Observer") -> bool:
-        notification = Notification(
-            observer.event, observer.router.api, observer.state_manager
-        )
+    def execute_handler(self, observer: "AbstractObserver[NotificationT]") -> bool:
+        notification = observer.make_notification()
 
         filters = json.dumps(self.filters, ensure_ascii=False)
 

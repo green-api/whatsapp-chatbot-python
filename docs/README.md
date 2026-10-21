@@ -533,20 +533,25 @@ python -m pip install 'whatsapp-chatbot-python[voip]'
 ```python
 import asyncio
 import logging
-import os
 
 from whatsapp_chatbot_python.calls import (
     CallEvent, CallSession, CallStateMachine,
 )
 from whatsapp_chatbot_python.calls.service import WhatsAppCallService
 
+id_instance = "ID_INSTANCE"
+api_token_instance = "API_TOKEN"
+openai_api_key = "OPENAI_KEY"
+realtime_model = "gpt-realtime-2.1"
+realtime_voice = "marin"
+
 service = WhatsAppCallService(
     api_url="https://api.green-api.com",
-    id_instance=os.environ["ID_INSTANCE"],
-    api_token_instance=os.environ["API_TOKEN_INSTANCE"],
-    openai_api_key=os.environ["OPENAI_API_KEY"],
-    realtime_model=os.environ["REALTIME_MODEL"],
-    realtime_voice=os.environ["REALTIME_VOICE"],
+    id_instance=id_instance,
+    api_token_instance=api_token_instance,
+    openai_api_key=openai_api_key,
+    realtime_model=realtime_model,
+    realtime_voice=realtime_voice,
     ring_timeout_seconds=30,
     talk_timeout_seconds=120,
     shutdown_timeout_seconds=10,
@@ -563,16 +568,53 @@ async def call_once():
     fsm.apply(session, CallEvent.ENQUEUED)
     fsm.apply(session, CallEvent.DEQUEUED)
     result = await service.execute(session, fsm.apply)
-    try:
+    with result:
         print(session.state, session.end_reason, session.error_code)
         if result.recording_path is not None:
             print("MP3:", result.recording_path)
-            # Upload or copy the recording here, before removing it.
-    finally:
-        if result.recording_path is not None:
-            result.recording_path.unlink(missing_ok=True)
 
 asyncio.run(call_once())
+```
+
+`with result:` удаляет невостребованный MP3 после использования. Метод
+`result.take_recording()` передаёт владение файлом приложению. Настройка
+`CallOptions(input_audio=InputAudioOptions(...))` ограничивает очередь аудио
+между RTC и голосовой моделью; переполнение завершает звонок. Таймаут очистки
+означает неподтверждённое закрытие ресурса. Сервис выставляет `healthy=False`
+и не принимает следующие звонки. Если закрытие сигнального соединения внутри
+установленного RTC SDK так и не завершилось, после проверки нужен перезапуск
+рабочего процесса.
+
+### Принять входящий звонок
+
+Очередь, дедупликация предложений звонка и разбор уведомлений принадлежат приложению. Входящий звонок может использовать
+того же работника очереди, что и исходящий. При получении `offer` приложение вычисляет оставшееся время по времени
+уведомления и передаёт абсолютный срок `monotonic() + remaining_seconds`. Например, лимит 60 секунд задаёт приложение;
+библиотека не содержит фиксированного лимита входящего дозвона. Срок включает ожидание в очереди и подготовку вызова.
+Координатор может использовать тип `IncomingCallExecutor`: он расширяет существующий `CallExecutor` двумя методами
+управления входящим вызовом.
+
+```python
+from time import monotonic
+from whatsapp_chatbot_python.calls import CallEvent, CallSession, CallStateMachine
+
+session = CallSession.incoming(
+    sender_id=caller_id,
+    call_id=call_id,
+    language="ru",
+    incoming_deadline=monotonic() + remaining_seconds,
+    greeting_text="Здравствуйте! Это демонстрационный звонок WhatsApp. Что хотите обсудить?",
+)
+fsm = CallStateMachine()
+fsm.apply(session, CallEvent.ENQUEUED)
+app_queue.put(session)
+
+if monotonic() >= session.incoming_deadline:
+    fsm.apply(session, CallEvent.INCOMING_EXPIRED)
+    await service.reject_incoming(session.call_id, session.sender_id)
+else:
+    fsm.apply(session, CallEvent.DEQUEUED)
+    result = await service.execute(session, transition_under_app_lock)
 ```
 
 ## Документация по методам сервиса

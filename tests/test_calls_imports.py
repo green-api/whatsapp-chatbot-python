@@ -23,18 +23,20 @@ class BlockOptionalImports(importlib.abc.MetaPathFinder):
             raise ImportError("optional dependency blocked: " + fullname)
 
 sys.meta_path.insert(0, BlockOptionalImports())
-from whatsapp_chatbot_python import GreenAPIBot, Notification
+from whatsapp_chatbot_python import GreenAPIBot, IncomingCall, IncomingCallNotification, Notification
+assert IncomingCallNotification.__name__ == "IncomingCallNotification"
 assert "whatsapp_chatbot_python.calls" not in sys.modules
 ''')
 
     @unittest.skipIf(sys.version_info < (3, 11), "call contracts require Python 3.11+")
-    def test_contracts_do_not_load_call_implementation(self):
+    def test_public_call_import_does_not_load_optional_media_dependencies(self):
         self.run_script('''
 import sys
-from whatsapp_chatbot_python.calls import CallSession, CallStateMachine
+from whatsapp_chatbot_python.calls import CallDirection, CallSession, CallStateMachine, IncomingCallExecutor
 assert CallSession("sender", "chat", "en").state == "triggered"
-assert "whatsapp_chatbot_python.calls.service" not in sys.modules
-assert "whatsapp_chatbot_python.calls.realtime_voice" not in sys.modules
+assert CallSession("sender", "chat", "en").direction == CallDirection.OUTGOING
+assert IncomingCallExecutor.__name__ == "IncomingCallExecutor"
+assert "whatsapp_chatbot_python.calls.service" in sys.modules
 assert "openai" not in sys.modules
 assert "aiortc" not in sys.modules
 assert "av" not in sys.modules

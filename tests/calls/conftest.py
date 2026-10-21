@@ -8,5 +8,6 @@ if sys.version_info < (3, 11):
     collect_ignore_glob = ["test_*.py"]
 elif any(find_spec(name) is None for name in ("openai", "aiortc", "av")):
     collect_ignore_glob = [
-        "test_call_service.py", "test_realtime_voice.py", "test_call_recording.py"
+        "test_call_service.py", "test_call_cleanup.py",
+        "test_realtime_voice.py", "test_call_recording.py", "test_audio.py"
     ]
