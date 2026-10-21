@@ -5,7 +5,6 @@ import unittest
 from fractions import Fraction
 
 import av
-from aiortc.mediastreams import MediaStreamError
 
 from whatsapp_chatbot_python.calls.audio import AudioBridge, BotTrack, CallerSink, RecordingTap
 from whatsapp_chatbot_python.calls.models import InputAudioOptions, MediaFailed, PCM

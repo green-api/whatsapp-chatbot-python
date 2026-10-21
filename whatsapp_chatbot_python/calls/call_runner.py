@@ -6,7 +6,6 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
-from logging import Logger
 from time import monotonic
 
 from .models import (
@@ -56,7 +55,7 @@ class Events:
 
         try:
             loop = asyncio.get_running_loop()
-        except RuntimeError as error:
+        except RuntimeError:
             loop = None
 
         if loop is self._loop:

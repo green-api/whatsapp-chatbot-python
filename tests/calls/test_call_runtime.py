@@ -70,7 +70,7 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         operations.start(Command.GREET, work, 1)
         operations.start(Command.GREET, work, 1)
-        await asyncio.sleep(0)
+        await asyncio.gather(*operations._tasks.values())
         await operations.close()
         self.assertEqual(calls, 1)
         self.assertEqual([type(event) for event in reported], [CommandCompleted])

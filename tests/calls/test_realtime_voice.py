@@ -141,7 +141,17 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
         await self.voice.greet_once("Привет")
         await self.voice.greet_once("Ещё раз")
         self.assertEqual([action for action, _ in self.client.connection.actions].count("create"), 1)
-        self.assertEqual(self.client.connection.actions[-1][1]["response"]["instructions"], "Привет")
+        self.assertEqual(
+            self.client.connection.actions[-1][1]["response"]["instructions"],
+            'Greet the caller: "Привет" in Russian.',
+        )
+
+    async def test_default_greeting_instruction_uses_language_name(self):
+        await self.voice.greet_once(None)
+        self.assertEqual(
+            self.client.connection.actions[-1][1]["response"]["instructions"],
+            "Greet the caller briefly in Russian.",
+        )
 
     async def test_incoming_pcm_is_base64_encoded(self):
         await self.voice.write_audio(FRAME)

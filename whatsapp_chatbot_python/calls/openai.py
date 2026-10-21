@@ -19,6 +19,15 @@ from .models import (
 from .playback_state_machine import AppendResult, PlaybackController, PlaybackCut, PlaybackState
 
 
+_LANGUAGE_NAMES = {
+    "ru": "Russian",
+    "en": "English",
+    "he": "Hebrew",
+    "es": "Spanish",
+    "kz": "Kazakh",
+}
+
+
 class RealtimeConversation:
     def __init__(
         self,
@@ -169,14 +178,21 @@ class RealtimeConversation:
         await self._connection.input_audio_buffer.append(
             audio=base64.b64encode(data).decode("ascii"))
 
-    async def greet_once(self, text: str | None) -> None:
+    async def greet_once(self, greeting_text: str | None) -> None:
         if self._greeted:
             return
 
         self._greeted = True
+        language_name = _LANGUAGE_NAMES.get(self._language, "English")
+
+        greeting_instruction = (
+            f'Greet the caller: "{greeting_text}" in {language_name}.'
+            if greeting_text else
+            f"Greet the caller briefly in {language_name}."
+        )
 
         await self._connection.response.create(response={
-            "instructions": text or f"Greet the caller briefly in {self._language}.",
+            "instructions": greeting_instruction,
         })
 
     async def _read(self) -> None:
