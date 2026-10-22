@@ -10,6 +10,7 @@ from time import monotonic
 
 from .models import (
     AcceptResult,
+    AudioLoss,
     CallerLeft,
     CallCleanupError,
     CallDirection,
@@ -399,6 +400,8 @@ class CallResources:
             logger.error("Late call cleanup failed: stage=%s type=%s", stage, type(error).__name__)
 
     async def _finish_recording(self) -> None:
+        self.audio.log_recording_timing(self._session.session_id)
+
         keep = self._session.end_reason in (
             CallEndReason.REMOTE_HANGUP,
             CallEndReason.TALK_TIMEOUT,
@@ -617,6 +620,25 @@ class CallRunner:
                 self._deadline(kind)
             case MediaFailed(error=error):
                 raise error
+            case AudioLoss():
+                self._report_audio_loss(event)
+
+    def _report_audio_loss(self, loss: AudioLoss) -> None:
+        logger.warning(
+            "Call audio lost: session=%s direction=%s samples=%d",
+            self.session.session_id, loss.direction, loss.dropped_samples,
+        )
+
+        if self._options.on_audio_loss is None:
+            return
+
+        try:
+            self._options.on_audio_loss(self.session, loss)
+        except Exception as error:
+            logger.warning(
+                "Call audio loss callback failed: session=%s error=%s",
+                self.session.session_id, type(error).__name__,
+            )
 
     def _command_completed(
         self, command: Command, at: float, result: AcceptResult | None,

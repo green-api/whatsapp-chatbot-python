@@ -8,7 +8,7 @@ from enum import Enum
 from math import isfinite
 from pathlib import Path
 from time import monotonic
-from typing import Callable, Protocol
+from typing import Callable, Literal, Protocol
 from uuid import uuid4
 
 
@@ -21,6 +21,16 @@ PCM16_MAX_VALUE = (1 << (PCM16_SAMPLE_BITS - 1)) - 1
 class CallDirection(str, Enum):
     INCOMING = "incoming"
     OUTGOING = "outgoing"
+
+
+class InputOverflowPolicy(str, Enum):
+    DROP_OLDEST = "drop_oldest"
+    FAIL = "fail"
+
+
+class PlaybackOverflowPolicy(str, Enum):
+    DRAIN_AND_CANCEL = "drain_and_cancel"
+    DROP_CHUNKS = "drop_chunks"
 
 
 class CallState(str, Enum):
@@ -308,10 +318,11 @@ def positive_values(*values: float) -> None:
 
 @dataclass(frozen=True)
 class PlaybackOptions:
-    soft_limit_seconds: float = 6
-    hard_limit_seconds: float = 24
+    soft_limit_seconds: float = 30
+    hard_limit_seconds: float = 180
     stall_seconds: float = 6
     watchdog_seconds: float = 1
+    overflow_policy: PlaybackOverflowPolicy | str = PlaybackOverflowPolicy.DRAIN_AND_CANCEL
 
     def __post_init__(self) -> None:
         positive_values(
@@ -324,26 +335,57 @@ class PlaybackOptions:
         if self.soft_limit_seconds >= self.hard_limit_seconds:
             raise ValueError("Playback soft limit must be below its hard limit")
 
+        try:
+            policy = PlaybackOverflowPolicy(self.overflow_policy)
+        except ValueError as error:
+            raise ValueError("Unknown playback overflow policy") from error
+
+        object.__setattr__(self, "overflow_policy", policy)
+
 
 @dataclass(frozen=True)
 class InputAudioOptions:
-    buffer_seconds: float = 0.5
+    buffer_seconds: float = 3
     send_seconds: float = 2
+    enqueue_seconds: float = 0.25
+    overflow_policy: InputOverflowPolicy | str = InputOverflowPolicy.DROP_OLDEST
 
     def __post_init__(self) -> None:
-        positive_values(self.buffer_seconds, self.send_seconds)
+        positive_values(self.buffer_seconds, self.send_seconds, self.enqueue_seconds)
+
+        try:
+            policy = InputOverflowPolicy(self.overflow_policy)
+        except ValueError as error:
+            raise ValueError("Unknown input audio overflow policy") from error
+
+        object.__setattr__(self, "overflow_policy", policy)
+
+
+@dataclass(frozen=True)
+class AudioLoss:
+    """Samples lost since the previous notice; the call can keep running."""
+    direction: Literal["caller", "bot"]
+    dropped_samples: int
+    observed_at: float = field(default_factory=monotonic)
+
+    @property
+    def dropped_seconds(self) -> float:
+        return self.dropped_samples / PCM.rate
 
 
 @dataclass(frozen=True)
 class CallOptions:
+    """Call limits and policies. Audio-loss callbacks run on the call event loop."""
     ring_seconds: float = 30
-    talk_seconds: float = 120
+    talk_seconds: float = 240
     setup_seconds: float = 30
     command_seconds: float = 10
     shutdown_seconds: float = 10
     recording: RecordingOptions = field(default_factory=RecordingOptions)
     playback: PlaybackOptions = field(default_factory=PlaybackOptions)
     input_audio: InputAudioOptions = field(default_factory=InputAudioOptions)
+    # Return promptly; schedule slow application work in another task.
+    on_audio_loss: Callable[[CallSession, AudioLoss], None] | None = None
 
     def __post_init__(self) -> None:
         positive_values(
@@ -353,6 +395,9 @@ class CallOptions:
             self.command_seconds,
             self.shutdown_seconds,
         )
+
+        if self.on_audio_loss is not None and not callable(self.on_audio_loss):
+            raise ValueError("Audio loss callback must be callable")
 
 
 @dataclass(frozen=True)
@@ -477,6 +522,7 @@ RuntimeEvent = (
     | CallerLeft
     | StopRequested
     | MediaFailed
+    | AudioLoss
     | DeadlineExpired
 )
 

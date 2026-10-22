@@ -7,9 +7,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from whatsapp_chatbot_python.calls.models import (
-    MediaFailed, PCM, PlaybackOptions, ProviderConfig,
+    AudioLoss, MediaFailed, PCM, PlaybackOptions, ProviderConfig,
 )
 from whatsapp_chatbot_python.calls.openai import RealtimeConversation
+from whatsapp_chatbot_python.calls.playback_state_machine import PlaybackController
 
 
 FRAME = bytes([1, 2]) * PCM.samples_per_frame
@@ -23,7 +24,9 @@ class FakeConnection:
         self.session = SimpleNamespace(update=self.update)
         self.response = SimpleNamespace(create=self.create, cancel=self.cancel)
         self.input_audio_buffer = SimpleNamespace(append=self.append)
-        self.conversation = SimpleNamespace(item=SimpleNamespace(truncate=self.truncate))
+        self.conversation = SimpleNamespace(
+            item=SimpleNamespace(truncate=self.truncate, delete=self.delete),
+        )
 
     async def update(self, **kwargs):
         self.actions.append(("update", kwargs))
@@ -40,6 +43,9 @@ class FakeConnection:
 
     async def truncate(self, **kwargs):
         self.actions.append(("truncate", kwargs))
+
+    async def delete(self, **kwargs):
+        self.actions.append(("delete", kwargs))
 
     async def close(self):
         self.closed = True
@@ -95,6 +101,7 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.client = None
         self.failures = []
+        self.audio_losses = []
 
         def create_client(**kwargs):
             self.client = FakeOpenAI(**kwargs)
@@ -109,10 +116,16 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
             PlaybackOptions(soft_limit_seconds=PCM.frame_seconds,
                             hard_limit_seconds=PCM.frame_seconds * 2,
                             watchdog_seconds=0.01),
-            self.failures.append, "ru", 0.1,
+            self._record_event, "ru", 0.1,
         )
         await self.voice.__aenter__()
         await self.voice.start()
+
+    def _record_event(self, event):
+        if isinstance(event, AudioLoss):
+            self.audio_losses.append(event)
+        else:
+            self.failures.append(event)
 
     async def asyncTearDown(self):
         await self.voice.__aexit__(None, None, None)
@@ -193,6 +206,71 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("cancel", [name for name, _ in self.client.connection.actions])
         self.assertEqual(self.voice.read_frame(), FRAME)
         self.assertEqual(self.voice.read_frame(), FRAME)
+        self.assertEqual(self.failures, [])
+
+    async def test_drop_chunks_policy_keeps_the_same_response_active(self):
+        self.voice._playback = PlaybackController(PlaybackOptions(
+            soft_limit_seconds=PCM.frame_seconds,
+            hard_limit_seconds=PCM.frame_seconds * 2,
+            watchdog_seconds=0.01,
+            overflow_policy="drop_chunks",
+        ))
+        frames = [bytes([index, 0]) * PCM.samples_per_frame for index in range(4)]
+
+        await self.dispatch(dict(type="response.created", response=SimpleNamespace(id="response-1")))
+        await self.audio(frames[0] + frames[1])
+        await self.audio(frames[2])
+        self.assertEqual(self.voice.read_frame(), frames[0])
+        await self.audio(frames[3])
+        await self.dispatch(dict(type="response.output_audio.done", item_id="item-1",
+                                 content_index=0))
+        await self.dispatch(dict(type="response.done", response=SimpleNamespace(
+            id="response-1", status="completed")))
+
+        self.assertEqual([self.voice.read_frame(), self.voice.read_frame()],
+                         [frames[1], frames[3]])
+        self.assertEqual(self.voice.read_frame(), bytes(PCM.bytes_per_frame))
+        self.assertNotIn("cancel", [name for name, _ in self.client.connection.actions])
+        self.assertEqual(self.failures, [])
+        self.assertEqual(len(self.audio_losses), 1)
+        self.assertEqual(self.audio_losses[0].dropped_samples, PCM.samples_per_frame)
+
+        for _ in range(100):
+            if ("delete", {"item_id": "item-1"}) in self.client.connection.actions:
+                break
+            await asyncio.sleep(0.001)
+        self.assertIn(("delete", {"item_id": "item-1"}),
+                      self.client.connection.actions)
+
+    async def test_repeated_drops_are_counted_for_one_response(self):
+        self.voice._playback = PlaybackController(PlaybackOptions(
+            soft_limit_seconds=PCM.frame_seconds,
+            hard_limit_seconds=PCM.frame_seconds * 2,
+            overflow_policy="drop_chunks",
+        ))
+        await self.dispatch(dict(type="response.created", response=SimpleNamespace(id="response-1")))
+        await self.audio(FRAME * 2)
+        await self.audio(FRAME)
+        await self.audio(FRAME)
+        await self.dispatch(dict(type="response.done", response=SimpleNamespace(
+            id="response-1", status="completed")))
+
+        self.assertEqual([self.voice.read_frame(), self.voice.read_frame()], [FRAME, FRAME])
+        self.assertEqual(self.failures, [])
+        self.assertEqual(len(self.audio_losses), 1)
+        self.assertEqual(self.audio_losses[0].dropped_samples, 2 * PCM.samples_per_frame)
+
+    async def test_response_done_does_not_discard_audio_awaiting_playback(self):
+        await self.dispatch(dict(type="response.created", response=SimpleNamespace(id="response-1")))
+        await self.audio(FRAME * 2)
+        await self.dispatch(dict(type="response.output_audio.done", item_id="item-1",
+                                 content_index=0))
+        await self.dispatch(dict(type="response.done", response=SimpleNamespace(
+            id="response-1", status="completed")))
+
+        self.assertEqual([self.voice.read_frame(), self.voice.read_frame()], [FRAME, FRAME])
+        self.assertEqual(self.voice.read_frame(), bytes(PCM.bytes_per_frame))
+        self.assertNotIn("cancel", [name for name, _ in self.client.connection.actions])
         self.assertEqual(self.failures, [])
 
     async def test_provider_response_failure_is_reported(self):
