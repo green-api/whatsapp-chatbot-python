@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from time import monotonic
 from uuid import uuid4
 from contextlib import AsyncExitStack
 
 from .models import (
+    AudioLoss,
     EventSink,
     MediaFailed,
     PlaybackOptions,
@@ -16,7 +18,13 @@ from .models import (
     PCM,
 )
 
-from .playback_state_machine import AppendResult, PlaybackController, PlaybackCut, PlaybackState
+from .playback_state_machine import (
+    AppendResult,
+    AudioItemKey,
+    PlaybackController,
+    PlaybackCut,
+    PlaybackState,
+)
 
 
 _LANGUAGE_NAMES = {
@@ -26,6 +34,9 @@ _LANGUAGE_NAMES = {
     "es": "Spanish",
     "kz": "Kazakh",
 }
+
+
+logger = logging.getLogger(__name__)
 
 
 class RealtimeConversation:
@@ -47,8 +58,10 @@ class RealtimeConversation:
         self._client = None
         self._tasks: set[asyncio.Task] = set()
         self._responses: set[str] = set()
+        self._response_items: dict[str, set[AudioItemKey]] = {}
         self._cancelled: set[str] = set()
         self._cancel_events: dict[str, float] = {}
+        self._dropped_audio: dict[str, int] = {}
         self._playback = PlaybackController(playback)
         self._greeted = False
         self._closed = False
@@ -163,16 +176,25 @@ class RealtimeConversation:
     def read_frame(self) -> bytes:
         frame = self._playback.read_frame()
         cuts = self._playback.take_drained_cuts()
+        items_to_delete = self._playback.take_items_to_delete()
 
         if cuts and self._connection is not None and not self._closed:
             self._spawn(self._truncate_cuts(cuts))
+
+        if items_to_delete and self._connection is not None and not self._closed:
+            self._spawn(self._delete_items(items_to_delete))
 
         return frame
 
     def replace_track(self) -> None:
         cuts = self._playback.replace_track()
+        items_to_delete = self._playback.take_items_to_delete()
+
         if self._connection is not None and not self._closed and (cuts or self._responses):
-            self._spawn(self._finish_interruption(cuts))
+            self._spawn(self._finish_interruption(cuts, reason="track_replaced"))
+
+        if items_to_delete and self._connection is not None and not self._closed:
+            self._spawn(self._delete_items(items_to_delete))
 
     async def write_audio(self, data: bytes) -> None:
         await self._connection.input_audio_buffer.append(
@@ -209,7 +231,12 @@ class RealtimeConversation:
                 self._responses.add(event.response.id)
 
                 if self._playback.state in (PlaybackState.DRAINING, PlaybackState.SUSPENDED):
-                    await self._cancel_responses()
+                    reason = "playback_capacity_exceeded"
+
+                    if self._playback.state == PlaybackState.SUSPENDED:
+                        reason = "playback_stalled"
+
+                    await self._cancel_responses(reason=reason)
             case "response.output_audio.delta":
                 await self._receive_audio(event)
             case "response.output_audio.done":
@@ -219,13 +246,10 @@ class RealtimeConversation:
                     self._playback.finish_response()
                 else:
                     self._playback.complete_item(item_id, event.content_index)
+
+                await self._delete_items(self._playback.take_items_to_delete())
             case "response.done":
-                self._responses.discard(event.response.id)
-
-                if event.response.status == "failed" and event.response.id not in self._cancelled:
-                    raise ProviderError("openai", "response_failed", "Realtime response failed")
-
-                self._cancelled.discard(event.response.id)
+                await self._response_finished(event.response)
             case "input_audio_buffer.speech_started":
                 await self._finish_interruption(self._playback.interrupt())
             case "error":
@@ -236,6 +260,41 @@ class RealtimeConversation:
                     return
 
                 raise self._provider_error(event)
+
+    async def _response_finished(self, response) -> None:
+        self._responses.discard(response.id)
+        response_item_keys = self._response_items.pop(response.id, set())
+
+        for item_id, content_index in response_item_keys:
+            self._playback.complete_item(item_id, content_index)
+
+        self._playback.mark_finished_response(response_item_keys)
+
+        await self._delete_items(self._playback.take_items_to_delete())
+
+        dropped_samples = self._dropped_audio.pop(response.id, 0)
+
+        if dropped_samples:
+            self._emit(AudioLoss("bot", dropped_samples))
+
+            logger.warning(
+                "Realtime audio dropped: response=%s samples=%d",
+               response.id, dropped_samples,
+           )
+
+        if response.status == "failed" and response.id not in self._cancelled:
+            raise ProviderError("openai", "response_failed", "Realtime response failed")
+
+        self._cancelled.discard(response.id)
+
+        if response.status == "incomplete":
+            details = getattr(response, "status_details", None)
+
+            logger.warning(
+                "Realtime response incomplete: response=%s reason=%s",
+                response.id,
+                getattr(details, "reason", None),
+            )
 
     @staticmethod
     def _provider_error(event) -> ProviderError:
@@ -251,16 +310,32 @@ class RealtimeConversation:
 
         data = base64.b64decode(event.delta, validate=True)
 
+        self._response_items.setdefault(event.response_id, set()).add(
+            (event.item_id, event.content_index))
+
+        previously_dropped = self._playback.dropped_samples
         result = self._playback.append(event.item_id, event.content_index, data)
 
         if result is AppendResult.OVERFLOW:
-            await self._cancel_responses()
-        elif result is AppendResult.IGNORED and self._playback.state == PlaybackState.SUSPENDED:
-            await self._finish_interruption(self._playback.interrupt())
+            await self._cancel_responses(reason="playback_capacity_exceeded")
+        elif result is AppendResult.DROPPED:
+            dropped_samples = self._playback.dropped_samples - previously_dropped
 
-    async def _finish_interruption(self, cuts: list[PlaybackCut]) -> None:
-        await self._cancel_responses()
+            self._dropped_audio[event.response_id] = (
+                self._dropped_audio.get(event.response_id, 0) + dropped_samples
+            )
+        elif result is AppendResult.IGNORED and self._playback.state == PlaybackState.SUSPENDED:
+            await self._finish_interruption(
+                self._playback.interrupt(), reason="playback_stalled")
+
+    async def _finish_interruption(
+        self,
+        cuts: list[PlaybackCut],
+        reason: str = "caller_interrupted",
+    ) -> None:
+        await self._cancel_responses(reason=reason)
         await self._truncate_cuts(cuts)
+        await self._delete_items(self._playback.take_items_to_delete())
 
     async def _truncate_cuts(self, cuts: list[PlaybackCut]) -> None:
 
@@ -271,11 +346,21 @@ class RealtimeConversation:
                 audio_end_ms=cut.played_ms,
             )
 
-    async def _cancel_responses(self) -> None:
+    async def _delete_items(self, item_ids: set[str]) -> None:
+        for item_id in item_ids:
+            await self._connection.conversation.item.delete(item_id=item_id)
+
+    async def _cancel_responses(self, reason: str = "caller_interrupted") -> None:
         pending = self._responses - self._cancelled
         self._cancelled.update(pending)
 
         for response_id in pending:
+            logger.info(
+                "Realtime response cancelled: response=%s reason=%s",
+                response_id,
+                reason,
+            )
+
             event_id = f"call-cancel-{uuid4().hex}"
             self._cancel_events[event_id] = monotonic() + 30
             await self._connection.response.cancel(response_id=response_id, event_id=event_id)
@@ -294,4 +379,4 @@ class RealtimeConversation:
             cuts = self._playback.suspend_if_stalled()
 
             if cuts is not None:
-                await self._finish_interruption(cuts)
+                await self._finish_interruption(cuts, reason="playback_stalled")

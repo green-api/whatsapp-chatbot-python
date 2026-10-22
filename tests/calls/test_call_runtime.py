@@ -4,14 +4,44 @@ import asyncio
 import unittest
 from time import monotonic
 
-from whatsapp_chatbot_python.calls.call_runner import Events, Operations
+from whatsapp_chatbot_python.calls.call_runner import CallRunner, Events, Operations
 from whatsapp_chatbot_python.calls.models import (
-    Command, CommandCompleted, CommandFailed, DeadlineExpired, DeadlineKind,
-    Deadlines, StopRequested,
+    AudioLoss, CallOptions, CallSession, Command, CommandCompleted, CommandFailed,
+    DeadlineExpired, DeadlineKind, Deadlines, ProviderConfig, StopRequested,
 )
 
 
 class RuntimeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_audio_loss_callback_receives_session_without_stopping_call(self):
+        notices = []
+        session = CallSession("caller", "chat", "en")
+        runner = CallRunner(
+            session, lambda *args, **kwargs: None,
+            ProviderConfig("https://example.invalid", "instance", "token", "key", "model", "voice"),
+            CallOptions(on_audio_loss=lambda call, loss: notices.append((call, loss))),
+        )
+        loss = AudioLoss("caller", 480)
+
+        runner._dispatch(loss)
+
+        self.assertEqual(notices, [(session, loss)])
+        self.assertFalse(session.finished)
+
+    async def test_audio_loss_callback_error_does_not_end_call(self):
+        def broken_callback(_session, _loss):
+            raise RuntimeError("callback failed")
+
+        session = CallSession("caller", "chat", "en")
+        runner = CallRunner(
+            session, lambda *args, **kwargs: None,
+            ProviderConfig("https://example.invalid", "instance", "token", "key", "model", "voice"),
+            CallOptions(on_audio_loss=broken_callback),
+        )
+
+        with self.assertLogs("whatsapp_chatbot_python.calls.call_runner", level="WARNING"):
+            runner._dispatch(AudioLoss("caller", 480))
+        self.assertFalse(session.finished)
+
     async def test_observation_before_deadline_wins(self):
         events = Events()
         deadlines = Deadlines()

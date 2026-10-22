@@ -30,7 +30,7 @@ class WhatsAppCallService:
         realtime_model: str,
         realtime_voice: str,
         ring_timeout_seconds: float = 30,
-        talk_timeout_seconds: float = 120,
+        talk_timeout_seconds: float = 240,
         shutdown_timeout_seconds: float = 10,
         options: CallOptions | None = None,
         recording: RecordingOptions | None = None,
