@@ -151,7 +151,11 @@ class RealtimeConversation:
     def _default_conversation_instructions(self) -> str:
         if self._language == "adaptive":
             # Workaround: English-only instructions can keep the model speaking English.
-            return "Greet the caller briefly. If the user speaks another language, naturally switch to that language. The conversation is not only in English."
+            return (
+                "Greet the user briefly. "
+                "If the user speaks another language, naturally switch to that language. "
+                "The conversation is not only in English."
+            )
 
         return f"Greet the caller briefly in {self._language}."
 
@@ -238,13 +242,13 @@ class RealtimeConversation:
         if self._language == "adaptive":
             # Workaround for the model staying in English after an English greeting.
             return (
-                "Greet the caller briefly. If the user speaks another language, "
+                "Greet the user briefly. If the user speaks another language, "
                 "naturally switch to that language. The conversation is not only in English."
             )
 
         language_name = _LANGUAGE_NAMES.get(self._language, "English")
 
-        return f"Greet the caller briefly in {language_name}."
+        return f"Greet the user briefly in {language_name}."
 
     async def _read(self) -> None:
         async for event in self._connection:
