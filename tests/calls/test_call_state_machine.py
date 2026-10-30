@@ -17,6 +17,18 @@ class CallStateMachineTest(unittest.TestCase):
         self.fsm = CallStateMachine()
         self.session = CallSession("sender@c.us", "sender@c.us", "ru")
 
+    def test_incoming_call_keeps_its_prompt(self) -> None:
+        session = CallSession.incoming(
+            sender_id="sender@c.us", call_id="call-1", language="adaptive",
+            incoming_deadline=monotonic() + 1,
+            prompt="Introduce yourself briefly.",
+        )
+        self.assertEqual(session.prompt, "Introduce yourself briefly.")
+
+    def test_empty_prompt_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Call prompt must not be empty"):
+            CallSession("sender@c.us", "sender@c.us", "adaptive", prompt="  ")
+
     def apply(self, event: CallEvent) -> CallState:
         self.fsm.apply(self.session, event)
         return self.session.state

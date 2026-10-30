@@ -15,6 +15,7 @@ from .models import (
     PlaybackOptions,
     ProviderConfig,
     ProviderError,
+    VadOptions,
     PCM,
 )
 
@@ -47,12 +48,15 @@ class RealtimeConversation:
         emit: EventSink,
         language: str,
         shutdown_seconds: float,
+        *,
+        vad: VadOptions | None = None,
     ) -> None:
         self._config = config
         self._options = playback
         self._emit = emit
         self._language = language
         self._shutdown_seconds = shutdown_seconds
+        self._vad = vad if vad is not None else VadOptions()
         self._stack = AsyncExitStack()
         self._connection = None
         self._client = None
@@ -115,9 +119,7 @@ class RealtimeConversation:
         await asyncio.wait_for(self._connection.close(), self._shutdown_seconds)
 
     def _session_settings(self) -> dict:
-        instructions = self._config.instructions or (
-            f"Have a concise, helpful phone conversation in {self._language}."
-        )
+        instructions = self._config.instructions or self._default_conversation_instructions()
 
         return {
             "type": "realtime",
@@ -126,7 +128,18 @@ class RealtimeConversation:
             "audio": {
                 "input": {
                     "format": {"type": "audio/pcm", "rate": PCM.rate},
-                    "turn_detection": {"type": "semantic_vad"},
+                    "noise_reduction": (
+                        {"type": self._vad.noise_reduction}
+                        if self._vad.noise_reduction is not None else None
+                    ),
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "threshold": self._vad.threshold,
+                        "prefix_padding_ms": self._vad.prefix_padding_ms,
+                        "silence_duration_ms": self._vad.silence_duration_ms,
+                        "create_response": True,
+                        "interrupt_response": True,
+                    },
                 },
                 "output": {
                     "format": {"type": "audio/pcm", "rate": PCM.rate},
@@ -134,6 +147,13 @@ class RealtimeConversation:
                 },
             },
         }
+
+    def _default_conversation_instructions(self) -> str:
+        if self._language == "adaptive":
+            # Workaround: English-only instructions can keep the model speaking English.
+            return "Greet the caller briefly. If the user speaks another language, naturally switch to that language. The conversation is not only in English."
+
+        return f"Greet the caller briefly in {self._language}."
 
     async def _await_configuration(self) -> None:
         async for event in self._connection:
@@ -200,22 +220,31 @@ class RealtimeConversation:
         await self._connection.input_audio_buffer.append(
             audio=base64.b64encode(data).decode("ascii"))
 
-    async def greet_once(self, greeting_text: str | None) -> None:
+    async def greet_once(self, prompt: str | None) -> None:
         if self._greeted:
             return
 
         self._greeted = True
-        language_name = _LANGUAGE_NAMES.get(self._language, "English")
 
         greeting_instruction = (
-            f'Greet the caller: "{greeting_text}" in {language_name}.'
-            if greeting_text else
-            f"Greet the caller briefly in {language_name}."
+            prompt if prompt is not None else self._default_greeting_instruction()
         )
 
         await self._connection.response.create(response={
             "instructions": greeting_instruction,
         })
+
+    def _default_greeting_instruction(self) -> str:
+        if self._language == "adaptive":
+            # Workaround for the model staying in English after an English greeting.
+            return (
+                "Greet the caller briefly. If the user speaks another language, "
+                "naturally switch to that language. The conversation is not only in English."
+            )
+
+        language_name = _LANGUAGE_NAMES.get(self._language, "English")
+
+        return f"Greet the caller briefly in {language_name}."
 
     async def _read(self) -> None:
         async for event in self._connection:

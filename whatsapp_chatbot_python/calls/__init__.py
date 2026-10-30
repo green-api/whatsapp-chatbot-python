@@ -24,6 +24,7 @@ from .models import (
     RecordingOptions,
     StateTransition,
     TransitionCallback,
+    VadOptions,
     ACTIVE_STATES,
     TERMINAL_STATES,
     WAITING_STATES,
@@ -37,5 +38,5 @@ __all__ = [
     "CallExecutionResult", "CallExecutor", "CallOptions", "CallSession", "CallServiceUnavailable", "CallState",
     "CallStateMachine", "IncomingCallExecutor", "InputAudioOptions", "InputOverflowPolicy", "PlaybackOptions",
     "PlaybackOverflowPolicy", "ProviderError", "RecordingOptions", "StateTransition", "TransitionCallback",
-    "WhatsAppCallService",
+    "VadOptions", "WhatsAppCallService",
 ]

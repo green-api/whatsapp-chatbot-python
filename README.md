@@ -540,10 +540,13 @@ credentials:
 
 ```python
 import asyncio
-import logging
 
 from whatsapp_chatbot_python.calls import (
-    CallEvent, CallSession, CallStateMachine,
+    CallEvent,
+    CallOptions,
+    CallSession,
+    CallStateMachine,
+    VadOptions,
 )
 from whatsapp_chatbot_python.calls.service import WhatsAppCallService
 
@@ -560,10 +563,17 @@ service = WhatsAppCallService(
     openai_api_key=openai_api_key,
     realtime_model=realtime_model,
     realtime_voice=realtime_voice,
-    ring_timeout_seconds=30,
-    talk_timeout_seconds=120,
-    shutdown_timeout_seconds=10,
-    logger=logging.getLogger("calls"),
+    options=CallOptions(
+        ring_seconds=30,
+        talk_seconds=120,
+        shutdown_seconds=10,
+        vad=VadOptions(
+            threshold=0.70,
+            prefix_padding_ms=400,
+            silence_duration_ms=800,
+            noise_reduction="near_field",
+        ),
+    ),
 )
 
 async def call_once():

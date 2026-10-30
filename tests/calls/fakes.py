@@ -126,8 +126,9 @@ class FakeApi:
 
 
 class FakeVoice:
-    def __init__(self, scenario, *args):
+    def __init__(self, scenario, *args, vad=None):
         self.scenario = scenario
+        self.vad = vad
         self.greetings = []
         self.closed = False
         self.started = False
@@ -147,9 +148,9 @@ class FakeVoice:
             raise RuntimeError("voice unavailable")
         self.started = True
 
-    async def greet_once(self, text):
+    async def greet_once(self, prompt):
         if not self.greetings:
-            self.greetings.append(text)
+            self.greetings.append(prompt)
             self.scenario.actions.append("greet")
 
     def read_frame(self):

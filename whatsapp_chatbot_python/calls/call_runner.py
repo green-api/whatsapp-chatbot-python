@@ -203,6 +203,7 @@ class CallResources:
             emit,
             session.language,
             options.shutdown_seconds,
+            vad=options.vad,
         )
 
         self.audio = AudioBridge(
@@ -730,7 +731,7 @@ class CallRunner:
 
         self._start(
             Command.GREET,
-            lambda: self._resources.voice.greet_once(self.session.greeting_text),
+            lambda: self._resources.voice.greet_once(self.session.prompt),
         )
 
     def _caller_left(self, call_id: str) -> None:
