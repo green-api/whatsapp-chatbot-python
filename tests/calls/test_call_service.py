@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from whatsapp_chatbot_python.calls.models import (
     CallEndReason, CallEvent, CallOptions, CallSession, CallState, ProviderError,
-    RecordingOptions,
+    RecordingOptions, VadOptions,
 )
 from whatsapp_chatbot_python.calls.service import WhatsAppCallService
 from whatsapp_chatbot_python.calls.state_machine import CallStateMachine
@@ -28,8 +28,8 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
             self.apis.append(api)
             return api
 
-        def create_voice(*args):
-            voice = FakeVoice(self.scenario, *args)
+        def create_voice(*args, **kwargs):
+            voice = FakeVoice(self.scenario, *args, **kwargs)
             self.voices.append(voice)
             return voice
 
@@ -41,7 +41,7 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def service(self, *, ring=0.2, talk=0.2):
+    def service(self, *, ring=0.2, talk=0.2, vad=None):
         return WhatsAppCallService(
             api_url="https://example.invalid", id_instance="1",
             api_token_instance="token", openai_api_key="explicit-key",
@@ -50,6 +50,7 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
                 ring_seconds=ring, talk_seconds=talk, setup_seconds=0.1,
                 command_seconds=0.1, shutdown_seconds=0.1,
                 recording=RecordingOptions(enabled=False),
+                vad=vad or VadOptions(),
             ),
         )
 
@@ -59,10 +60,11 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
         self.fsm.apply(session, CallEvent.DEQUEUED)
         return session
 
-    def incoming(self, *, call_id="call-1", deadline=None):
+    def incoming(self, *, call_id="call-1", deadline=None, prompt=None):
         session = CallSession.incoming(
             sender_id="sender@c.us", call_id=call_id, language="ru",
             incoming_deadline=deadline if deadline is not None else monotonic() + 1,
+            prompt=prompt,
         )
         self.fsm.apply(session, CallEvent.ENQUEUED)
         self.fsm.apply(session, CallEvent.DEQUEUED)
@@ -94,12 +96,18 @@ class CallServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_incoming_accepts_matching_offer_and_greets_after_answer(self):
         self.scenario.state = "inc-call"
-        session = self.incoming()
+        session = self.incoming(prompt="Introduce yourself briefly.")
         await self.execute(self.service(), session)
         self.assertEqual(session.state, CallState.REMOTE_ENDED)
         self.assertTrue(session.incoming_accept_completed)
         self.assertLess(self.scenario.actions.index("accept"), self.scenario.actions.index("greet"))
+        self.assertEqual(self.voices[0].greetings, ["Introduce yourself briefly."])
         self.assertTrue(self.apis[0].session_closed)
+
+    async def test_service_passes_vad_options_to_voice(self):
+        vad = VadOptions(threshold=0.85, noise_reduction="far_field")
+        await self.execute(self.service(vad=vad), self.outgoing())
+        self.assertIs(self.voices[0].vad, vad)
 
     async def test_incoming_call_id_takes_priority_over_pn_or_lid_address(self):
         self.scenario.state = "inc-call"

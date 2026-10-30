@@ -26,8 +26,8 @@ class CleanupTest(unittest.IsolatedAsyncioTestCase):
             self.apis.append(api)
             return api
 
-        def voice_factory(*args):
-            voice = FakeVoice(self.scenario, *args)
+        def voice_factory(*args, **kwargs):
+            voice = FakeVoice(self.scenario, *args, **kwargs)
             self.voices.append(voice)
             return voice
 

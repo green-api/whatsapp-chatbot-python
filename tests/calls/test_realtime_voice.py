@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from whatsapp_chatbot_python.calls.models import (
-    AudioLoss, MediaFailed, PCM, PlaybackOptions, ProviderConfig,
+    AudioLoss, CallOptions, MediaFailed, PCM, PlaybackOptions, ProviderConfig, VadOptions,
 )
 from whatsapp_chatbot_python.calls.openai import RealtimeConversation
 from whatsapp_chatbot_python.calls.playback_state_machine import PlaybackController
@@ -146,25 +146,92 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
             delta=base64.b64encode(payload).decode("ascii"),
         ))
 
-    async def test_session_uses_explicit_key_and_greets_only_once(self):
+    async def test_explicit_prompt_is_sent_unchanged_only_once(self):
         self.assertEqual(self.client.api_key, "explicit-key")
         settings = self.client.connection.actions[0][1]["session"]
         self.assertEqual(settings["audio"]["output"]["voice"], "marin")
         self.assertEqual(settings["audio"]["input"]["format"]["rate"], PCM.rate)
-        await self.voice.greet_once("Привет")
-        await self.voice.greet_once("Ещё раз")
+        self.assertEqual(settings["audio"]["input"]["noise_reduction"],
+                         {"type": "near_field"})
+        self.assertEqual(settings["audio"]["input"]["turn_detection"], {
+            "type": "server_vad",
+            "threshold": 0.70,
+            "prefix_padding_ms": 400,
+            "silence_duration_ms": 800,
+            "create_response": True,
+            "interrupt_response": True,
+        })
+        await self.voice.prompt_once("Introduce yourself and ask how you can help.")
+        await self.voice.prompt_once("This prompt must be ignored.")
         self.assertEqual([action for action, _ in self.client.connection.actions].count("create"), 1)
         self.assertEqual(
             self.client.connection.actions[-1][1]["response"]["instructions"],
-            'Greet the caller: "Привет" in Russian.',
+            "Introduce yourself and ask how you can help.",
         )
 
+    async def test_custom_vad_settings_reach_realtime(self):
+        vad = VadOptions(
+            threshold=0.85, prefix_padding_ms=250,
+            silence_duration_ms=1200, noise_reduction="far_field",
+        )
+        config = ProviderConfig("https://example.invalid", "1", "token", "key", "model", "marin")
+        async with RealtimeConversation(
+            config, PlaybackOptions(), self._record_event, "ru", 0.1, vad=vad,
+        ) as voice:
+            await voice.start()
+            audio_input = voice._client.connection.actions[0][1]["session"]["audio"]["input"]
+
+        self.assertEqual(audio_input["noise_reduction"], {"type": "far_field"})
+        self.assertEqual(audio_input["turn_detection"], {
+            "type": "server_vad",
+            "threshold": 0.85,
+            "prefix_padding_ms": 250,
+            "silence_duration_ms": 1200,
+            "create_response": True,
+            "interrupt_response": True,
+        })
+
+    async def test_none_disables_noise_reduction(self):
+        self.voice._vad = VadOptions(noise_reduction=None)
+        self.assertIsNone(self.voice._session_settings()["audio"]["input"]["noise_reduction"])
+
     async def test_default_greeting_instruction_uses_language_name(self):
-        await self.voice.greet_once(None)
+        await self.voice.prompt_once(None)
         self.assertEqual(
             self.client.connection.actions[-1][1]["response"]["instructions"],
-            "Greet the caller briefly in Russian.",
+            "Greet the user briefly in Russian.",
         )
+
+    async def test_default_greeting_is_not_used_as_session_instruction(self):
+        self.assertNotIn("instructions", self.voice._session_settings())
+
+    async def test_explicit_conversation_instructions_remain_session_wide(self):
+        config = ProviderConfig(
+            "https://example.invalid", "1", "token", "key", "model", "marin",
+            "You are a helpful Russian-speaking phone assistant.",
+        )
+        async with RealtimeConversation(
+            config, PlaybackOptions(), self._record_event, "ru", 0.1,
+        ) as voice:
+            await voice.start()
+
+        settings = self.client.connection.actions[0][1]["session"]
+        self.assertEqual(
+            settings["instructions"],
+            "You are a helpful Russian-speaking phone assistant.",
+        )
+
+    async def test_adaptive_language_uses_switching_fallbacks(self):
+        self.voice._language = "adaptive"
+        settings = self.voice._session_settings()
+        required_phrases = ("another language", "switch to", "in English")
+        self.assertNotIn("instructions", settings)
+
+        await self.voice.prompt_once(None)
+        greeting_instructions = self.client.connection.actions[-1][1]["response"]["instructions"].lower()
+        for phrase in required_phrases:
+            with self.subTest(target="greeting", phrase=phrase):
+                self.assertIn(phrase.lower(), greeting_instructions)
 
     async def test_incoming_pcm_is_base64_encoded(self):
         await self.voice.write_audio(FRAME)
@@ -181,6 +248,16 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([name for name, _ in actions[-2:]], ["cancel", "truncate"])
         self.assertEqual(actions[-1][1], dict(item_id="item-1", content_index=0,
                                               audio_end_ms=PCM.frame_ms))
+
+    async def test_provider_cancel_error_after_speech_started_is_ignored(self):
+        await self.dispatch(dict(type="response.created", response=SimpleNamespace(id="response-1")))
+        await self.dispatch(dict(type="input_audio_buffer.speech_started"))
+        cancel = next(data for name, data in self.client.connection.actions if name == "cancel")
+        await self.dispatch(dict(type="error", error=SimpleNamespace(
+            event_id=cancel["event_id"], code="response_cancel_failed", message="Already cancelled",
+        )))
+        self.assertEqual(self.failures, [])
+
 
     async def test_replaced_track_drops_old_audio_and_new_response_plays(self):
         await self.dispatch(dict(type="response.created", response=SimpleNamespace(id="response-1")))
@@ -292,3 +369,21 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
         await self.dispatch(dict(type="response.done", response=SimpleNamespace(
             id="response-1", status="cancelled")))
         self.assertNotIn("response-1", self.voice._cancelled)
+
+
+class VadOptionsTest(unittest.TestCase):
+    def test_invalid_vad_settings_are_rejected_before_call_start(self):
+        invalid_settings = (
+            {"threshold": -0.1}, {"threshold": 1.1},
+            {"threshold": float("nan")}, {"threshold": float("inf")},
+            {"threshold": True}, {"threshold": "0.7"},
+            {"prefix_padding_ms": -1}, {"prefix_padding_ms": True},
+            {"prefix_padding_ms": 0.5}, {"silence_duration_ms": 0},
+            {"silence_duration_ms": True}, {"noise_reduction": "unknown"},
+        )
+        for settings in invalid_settings:
+            with self.subTest(settings=settings), self.assertRaises(ValueError):
+                VadOptions(**settings)
+
+        with self.assertRaisesRegex(ValueError, "VAD options must be VadOptions"):
+            CallOptions(vad=None)

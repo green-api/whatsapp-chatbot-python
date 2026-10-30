@@ -132,7 +132,7 @@ class CallSession:
     state: CallState = CallState.TRIGGERED
     call_id: str | None = None
     incoming_deadline: float | None = None
-    greeting_text: str | None = None
+    prompt: str | None = None
     end_reason: CallEndReason | None = None
     remote_reason: str | None = None
     error_code: str | None = None
@@ -145,6 +145,10 @@ class CallSession:
     bridge_ready: bool = False
     incoming_accept_completed: bool = False
 
+    def __post_init__(self) -> None:
+        if self.prompt is not None and not self.prompt.strip():
+            raise ValueError("Call prompt must not be empty")
+
     @property
     def finished(self) -> bool:
         return self.state in TERMINAL_STATES
@@ -156,7 +160,7 @@ class CallSession:
         sender_id: str,
         call_id: str,
         language: str,
-        incoming_deadline: float, greeting_text: str | None = None,
+        incoming_deadline: float, prompt: str | None = None,
         chat_id: str | None = None,
     ) -> CallSession:
         if not sender_id or not call_id:
@@ -172,7 +176,7 @@ class CallSession:
             direction=CallDirection.INCOMING,
             call_id=call_id,
             incoming_deadline=incoming_deadline,
-            greeting_text=greeting_text,
+            prompt=prompt,
         )
 
 
@@ -362,6 +366,33 @@ class InputAudioOptions:
 
 
 @dataclass(frozen=True)
+class VadOptions:
+    """Server VAD settings for caller audio in OpenAI Realtime."""
+    threshold: float = 0.70
+    prefix_padding_ms: int = 400
+    silence_duration_ms: int = 800
+    noise_reduction: Literal["near_field", "far_field"] | None = "near_field"
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.threshold, bool)
+            or not isinstance(self.threshold, (int, float))
+            or not isfinite(self.threshold)
+            or not 0 <= self.threshold <= 1
+        ):
+            raise ValueError("VAD threshold must be a finite number between 0 and 1")
+
+        if type(self.prefix_padding_ms) is not int or self.prefix_padding_ms < 0:
+            raise ValueError("VAD prefix padding must be non-negative milliseconds")
+
+        if type(self.silence_duration_ms) is not int or self.silence_duration_ms <= 0:
+            raise ValueError("VAD silence duration must be positive milliseconds")
+
+        if self.noise_reduction not in ("near_field", "far_field", None):
+            raise ValueError("Unknown VAD noise reduction setting")
+
+
+@dataclass(frozen=True)
 class AudioLoss:
     """Samples lost since the previous notice; the call can keep running."""
     direction: Literal["caller", "bot"]
@@ -386,6 +417,7 @@ class CallOptions:
     input_audio: InputAudioOptions = field(default_factory=InputAudioOptions)
     # Return promptly; schedule slow application work in another task.
     on_audio_loss: Callable[[CallSession, AudioLoss], None] | None = None
+    vad: VadOptions = field(default_factory=VadOptions)
 
     def __post_init__(self) -> None:
         positive_values(
@@ -398,6 +430,9 @@ class CallOptions:
 
         if self.on_audio_loss is not None and not callable(self.on_audio_loss):
             raise ValueError("Audio loss callback must be callable")
+
+        if not isinstance(self.vad, VadOptions):
+            raise ValueError("VAD options must be VadOptions")
 
 
 @dataclass(frozen=True)
