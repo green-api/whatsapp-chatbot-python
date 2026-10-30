@@ -161,8 +161,8 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
             "create_response": True,
             "interrupt_response": True,
         })
-        await self.voice.greet_once("Introduce yourself and ask how you can help.")
-        await self.voice.greet_once("This prompt must be ignored.")
+        await self.voice.prompt_once("Introduce yourself and ask how you can help.")
+        await self.voice.prompt_once("This prompt must be ignored.")
         self.assertEqual([action for action, _ in self.client.connection.actions].count("create"), 1)
         self.assertEqual(
             self.client.connection.actions[-1][1]["response"]["instructions"],
@@ -196,22 +196,38 @@ class RealtimeConversationTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.voice._session_settings()["audio"]["input"]["noise_reduction"])
 
     async def test_default_greeting_instruction_uses_language_name(self):
-        await self.voice.greet_once(None)
+        await self.voice.prompt_once(None)
         self.assertEqual(
             self.client.connection.actions[-1][1]["response"]["instructions"],
             "Greet the user briefly in Russian.",
+        )
+
+    async def test_default_greeting_is_not_used_as_session_instruction(self):
+        self.assertNotIn("instructions", self.voice._session_settings())
+
+    async def test_explicit_conversation_instructions_remain_session_wide(self):
+        config = ProviderConfig(
+            "https://example.invalid", "1", "token", "key", "model", "marin",
+            "You are a helpful Russian-speaking phone assistant.",
+        )
+        async with RealtimeConversation(
+            config, PlaybackOptions(), self._record_event, "ru", 0.1,
+        ) as voice:
+            await voice.start()
+
+        settings = self.client.connection.actions[0][1]["session"]
+        self.assertEqual(
+            settings["instructions"],
+            "You are a helpful Russian-speaking phone assistant.",
         )
 
     async def test_adaptive_language_uses_switching_fallbacks(self):
         self.voice._language = "adaptive"
         settings = self.voice._session_settings()
         required_phrases = ("another language", "switch to", "in English")
-        session_instructions = settings["instructions"].lower()
-        for phrase in required_phrases:
-            with self.subTest(target="session", phrase=phrase):
-                self.assertIn(phrase.lower(), session_instructions)
+        self.assertNotIn("instructions", settings)
 
-        await self.voice.greet_once(None)
+        await self.voice.prompt_once(None)
         greeting_instructions = self.client.connection.actions[-1][1]["response"]["instructions"].lower()
         for phrase in required_phrases:
             with self.subTest(target="greeting", phrase=phrase):

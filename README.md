@@ -621,7 +621,7 @@ session = CallSession.incoming(
     call_id=call_id,
     language="en",
     incoming_deadline=monotonic() + remaining_seconds,
-    greeting_text="Hello! This is a WhatsApp demo call. What would you like to discuss?",
+    prompt="Greet the user: 'Hello! This is a WhatsApp demo call. What would you like to discuss?'",
 )
 fsm = CallStateMachine()
 fsm.apply(session, CallEvent.ENQUEUED)

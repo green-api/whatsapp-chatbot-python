@@ -731,7 +731,7 @@ class CallRunner:
 
         self._start(
             Command.GREET,
-            lambda: self._resources.voice.greet_once(self.session.prompt),
+            lambda: self._resources.voice.prompt_once(self.session.prompt),
         )
 
     def _caller_left(self, call_id: str) -> None:

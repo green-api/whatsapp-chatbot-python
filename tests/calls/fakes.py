@@ -148,7 +148,7 @@ class FakeVoice:
             raise RuntimeError("voice unavailable")
         self.started = True
 
-    async def greet_once(self, prompt):
+    async def prompt_once(self, prompt):
         if not self.greetings:
             self.greetings.append(prompt)
             self.scenario.actions.append("greet")

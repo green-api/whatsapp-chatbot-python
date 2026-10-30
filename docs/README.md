@@ -613,7 +613,7 @@ session = CallSession.incoming(
     call_id=call_id,
     language="ru",
     incoming_deadline=monotonic() + remaining_seconds,
-    greeting_text="Здравствуйте! Это демонстрационный звонок WhatsApp. Что хотите обсудить?",
+    prompt="Поприветствуй пользователя: 'Здравствуйте! Это демонстрационный звонок WhatsApp. Что хотите обсудить?'",
 )
 fsm = CallStateMachine()
 fsm.apply(session, CallEvent.ENQUEUED)

@@ -119,11 +119,8 @@ class RealtimeConversation:
         await asyncio.wait_for(self._connection.close(), self._shutdown_seconds)
 
     def _session_settings(self) -> dict:
-        instructions = self._config.instructions or self._default_conversation_instructions()
-
-        return {
+        settings = {
             "type": "realtime",
-            "instructions": instructions,
             "output_modalities": ["audio"],
             "audio": {
                 "input": {
@@ -148,16 +145,10 @@ class RealtimeConversation:
             },
         }
 
-    def _default_conversation_instructions(self) -> str:
-        if self._language == "adaptive":
-            # Workaround: English-only instructions can keep the model speaking English.
-            return (
-                "Greet the user briefly. "
-                "If the user speaks another language, naturally switch to that language. "
-                "The conversation is not only in English."
-            )
+        if self._config.instructions is not None:
+            settings["instructions"] = self._config.instructions
 
-        return f"Greet the caller briefly in {self._language}."
+        return settings
 
     async def _await_configuration(self) -> None:
         async for event in self._connection:
@@ -224,7 +215,7 @@ class RealtimeConversation:
         await self._connection.input_audio_buffer.append(
             audio=base64.b64encode(data).decode("ascii"))
 
-    async def greet_once(self, prompt: str | None) -> None:
+    async def prompt_once(self, prompt: str | None) -> None:
         if self._greeted:
             return
 
