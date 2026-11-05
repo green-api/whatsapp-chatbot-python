@@ -464,10 +464,6 @@ class CallCleanupError(RuntimeError):
         super().__init__(f"Call cleanup failed at {stage}: {type(cause).__name__}")
 
 
-class CallServiceUnavailable(RuntimeError):
-    """A call service cannot accept a new call."""
-
-
 @dataclass(frozen=True)
 class DeadlineExpired:
     kind: DeadlineKind

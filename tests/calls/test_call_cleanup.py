@@ -311,6 +311,47 @@ class CleanupTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.voices[0].closed)
         release.set()
 
+    async def test_close_timeout_records_only_the_task_outcome_after_cancel(self):
+        from whatsapp_chatbot_python.calls.call_runner import CallResources
+
+        async def make_resources():
+            resources = object.__new__(CallResources)
+            resources.options = SimpleNamespace(shutdown_seconds=0.5)
+            resources.api = SimpleNamespace(close_errors=[])
+            resources.cleanup_errors = []
+            resources._pending_cleanup = set()
+            return resources
+
+        for close_result in ("success", ValueError("close failed")):
+            with self.subTest(close_result=close_result):
+                resources = await make_resources()
+                cancelled = asyncio.Event()
+                release = asyncio.Event()
+
+                async def close_operation():
+                    try:
+                        await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        cancelled.set()
+                        await release.wait()
+
+                        if isinstance(close_result, Exception):
+                            raise close_result
+
+                close_task = asyncio.create_task(
+                    resources._close_step("test_close", lambda: close_operation())
+                )
+
+                await asyncio.wait_for(cancelled.wait(), 1)
+                release.set()
+                await asyncio.wait_for(close_task, 1)
+
+                if close_result == "success":
+                    self.assertEqual(resources.cleanup_errors, [])
+                else:
+                    self.assertEqual(len(resources.cleanup_errors), 1)
+                    self.assertIs(resources.cleanup_errors[0].cause, close_result)
+
     async def test_late_prepare_cannot_open_rtc_after_cleanup_started(self):
         release = asyncio.Event()
         service = self.service(setup=2)

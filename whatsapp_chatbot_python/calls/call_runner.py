@@ -359,10 +359,18 @@ class CallResources:
             if not done:
                 self._pending_cleanup.add(task)
                 task.add_done_callback(lambda finished: self._observe_late_close(stage, finished))
-            elif not task.cancelled():
-                task.exception()
+                self._record_close_error(stage, TimeoutError())
 
-            self._record_close_error(stage, TimeoutError())
+                return
+
+            if task.cancelled():
+                self._record_close_error(stage, TimeoutError())
+                return
+
+            error = task.exception()
+
+            if error is not None:
+                self._record_close_error(stage, error)
 
             return
 
