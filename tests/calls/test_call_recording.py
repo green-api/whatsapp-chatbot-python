@@ -239,6 +239,56 @@ class RecordingTest(unittest.IsolatedAsyncioTestCase):
                 exported.unlink()
                 await recorder.close()
 
+    async def test_discarded_export_is_removed_after_call_loop_closes(self):
+        started, release = Event(), Event()
+
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = CallRecorder(RecordingOptions(directory=Path(directory)))
+
+            def slow_encode(tracks, path):
+                started.set()
+                release.wait(2)
+                path.write_bytes(b"mp3 placeholder")
+
+            def finish_in_own_loop():
+                async def finish_call():
+                    recorder.write(Track.CALLER, PcmChunk(0, pcm(1000)))
+
+                    with self.assertRaises(TimeoutError):
+                        await asyncio.wait_for(recorder.finish(), 0.02)
+
+                    self.assertIsNone(recorder.take_ready_or_discard())
+
+                asyncio.run(finish_call())
+
+            try:
+                with patch.object(recorder._encoder, "encode", side_effect=slow_encode):
+                    await asyncio.wait_for(asyncio.to_thread(finish_in_own_loop), 0.5)
+
+                self.assertTrue(started.is_set())
+                self.assertTrue(recorder.export_running)
+            finally:
+                release.set()
+
+            await asyncio.to_thread(recorder._export.result, 1)
+            self.assertFalse(recorder.export_running)
+            self.assertEqual(list(Path(directory).glob("*.mp3")), [])
+
+    async def test_discard_after_worker_finishes_removes_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = CallRecorder(RecordingOptions(directory=Path(directory)))
+            recorder.write(Track.CALLER, PcmChunk(0, pcm(1000)))
+
+            def encode(tracks, path):
+                path.write_bytes(b"mp3 placeholder")
+
+            with patch.object(recorder._encoder, "encode", side_effect=encode):
+                await recorder.finish()
+
+            recorder.discard()
+            self.assertEqual(list(Path(directory).glob("*.mp3")), [])
+            self.assertIsNone(recorder.take_ready_or_discard())
+
     async def test_callback_delay_does_not_insert_false_silence(self):
         clock = FakeClock()
         capture = FakeRecordingCapture()

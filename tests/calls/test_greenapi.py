@@ -110,7 +110,7 @@ class GreenApiCallTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("accept unavailable", raised.exception.detail)
         self.assertNotIn("token", str(raised.exception))
 
-    async def test_rtc_timeout_does_not_cancel_sdk_close(self):
+    async def test_rtc_timeout_cancels_sdk_close_and_closes_http_session(self):
         call = await self.start_outgoing()
         release = asyncio.Event()
 
@@ -118,19 +118,14 @@ class GreenApiCallTest(unittest.IsolatedAsyncioTestCase):
             await release.wait()
             rtc.closed = True
 
-        try:
-            with patch.object(FakeRtc, "closeAsync", delayed_close):
-                with self.assertRaises(CallCleanupError) as raised:
-                    await call.__aexit__(None, None, None)
+        with patch.object(FakeRtc, "closeAsync", delayed_close):
+            with self.assertRaises(CallCleanupError) as raised:
+                await call.__aexit__(None, None, None)
 
-            self.assertEqual(raised.exception.stage, "rtc_close")
-            self.assertTrue(self.apis[0].session_closed)
-            self.assertFalse(self.apis[0].rtc.closed)
-        finally:
-            release.set()
-            await asyncio.wait_for(call._rtc_close_task, 0.5)
-
-        self.assertTrue(self.apis[0].rtc.closed)
+        self.assertEqual(raised.exception.stage, "rtc_close")
+        self.assertTrue(self.apis[0].session_closed)
+        self.assertTrue(call._rtc_close_task.done())
+        self.assertFalse(self.apis[0].rtc.closed)
 
     async def test_late_rtc_open_cannot_restart_closed_adapter(self):
         started, release = asyncio.Event(), asyncio.Event()

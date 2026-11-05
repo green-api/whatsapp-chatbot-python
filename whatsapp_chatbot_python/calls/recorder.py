@@ -5,13 +5,14 @@ import asyncio
 import logging
 import sys
 from array import array
+from concurrent.futures import Future
 from contextlib import ExitStack
 from enum import Enum
 from pathlib import Path
 from queue import Full, Queue
 from tempfile import NamedTemporaryFile, TemporaryFile
-from threading import Thread
-from typing import BinaryIO
+from threading import Event, Lock, Thread
+from typing import BinaryIO, Callable, TypeVar
 
 from .models import (
     PcmChunk,
@@ -23,9 +24,12 @@ from .models import (
 )
 
 MP3_ENCODER = "libmp3lame"
+
 MP3_CONTAINER = "mp3"
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class Track(Enum):
@@ -200,9 +204,11 @@ class CallRecorder:
         self._options = options
         self._capture = PcmCapture(options)
         self._encoder = Mp3Encoder(options)
-        self._export: asyncio.Task | None = None
+        self._export: Future[Path | None] | None = None
         self._cleanup: asyncio.Task | None = None
         self._path: Path | None = None
+        self._path_lock = Lock()
+        self._export_worker_finished = Event()
         self._closed = False
         self._failed = False
         self._discard_requested = False
@@ -224,37 +230,63 @@ class CallRecorder:
 
     async def finish(self) -> Path | None:
         if self._export is None:
-            self._export = asyncio.create_task(asyncio.to_thread(self._finish_blocking))
-            self._export.add_done_callback(self._after_export)
+            self._export = self._start_worker(self._finish_blocking, "call-mp3-export")
 
-        return await asyncio.shield(self._export)
+        return await asyncio.shield(asyncio.wrap_future(self._export))
 
     def _finish_blocking(self) -> Path | None:
+        path = None
+
         try:
-            tracks = self._capture.seal()
-
-            if self._failed or not self._capture.has_samples:
-                return None
-
-            with NamedTemporaryFile(
-                suffix=".mp3",
-                dir=self._options.directory,
-                delete=False,
-            ) as output:
-                self._path = Path(output.name)
-
-            self._encoder.encode(tracks, self._path)
-
-            return self._path
+            path = self._export_recording()
         except Exception as error:
             self.discard()
             logger.warning("VoIP recording export failed: error=%s", type(error).__name__)
-            return None
         finally:
             try:
                 self._capture.close()
             except Exception as error:
                 logger.warning("VoIP recording cleanup failed: error=%s", type(error).__name__)
+            finally:
+                self._export_worker_finished.set()
+                self._delete_discarded_file()
+
+        with self._path_lock:
+            return None if self._discard_requested else path
+
+    def _export_recording(self) -> Path | None:
+        tracks = self._capture.seal()
+
+        if self._failed or not self._capture.has_samples:
+            return None
+
+        with NamedTemporaryFile(
+            suffix=".mp3", dir=self._options.directory, delete=False,
+        ) as output:
+            path = Path(output.name)
+
+        with self._path_lock:
+            self._path = path
+
+        self._encoder.encode(tracks, path)
+
+        return path
+
+    @staticmethod
+    def _start_worker(work: Callable[[], T], name: str) -> Future[T]:
+        future: Future[T] = Future()
+
+        future.set_running_or_notify_cancel()
+
+        def run() -> None:
+            try:
+                future.set_result(work())
+            except BaseException as error:
+                future.set_exception(error)
+
+        Thread(target=run, name=name, daemon=True).start()
+
+        return future
 
     def take(self) -> Path | None:
         if self._export is None or not self._export.done():
@@ -262,36 +294,52 @@ class CallRecorder:
 
         self._export.result()
 
-        path, self._path = self._path, None
+        with self._path_lock:
+            if self._discard_requested:
+                return None
 
-        return path
+            path, self._path = self._path, None
 
-    def discard(self) -> None:
-        if self._export is not None and not self._export.done():
-            self._discard_requested = True
-            return
+            return path
 
-        self._discard_now()
-
-    def _after_export(self, task: asyncio.Task) -> None:
-        if not task.cancelled():
-            task.exception()
-
-        if self._discard_requested:
-            self._discard_now()
-
-    def _discard_now(self) -> None:
-        if self._path is None:
-            return
+    def take_ready_or_discard(self) -> Path | None:
+        """Transfer a finished MP3, or discard it after its worker finishes."""
+        if self._export is None or not self._export.done():
+            self.discard()
+            return None
 
         try:
-            self._path.unlink(missing_ok=True)
+            return self.take()
+        except Exception as error:
+            self.discard()
+            logger.error("VoIP recording result unavailable: error=%s", type(error).__name__)
+            return None
+
+    @property
+    def export_running(self) -> bool:
+        return self._export is not None and not self._export_worker_finished.is_set()
+
+    def discard(self) -> None:
+        with self._path_lock:
+            self._discard_requested = True
+
+        if self._export is None or self._export_worker_finished.is_set():
+            self._delete_discarded_file()
+
+    def _delete_discarded_file(self) -> None:
+        with self._path_lock:
+            if not self._discard_requested or self._path is None:
+                return
+
+            path, self._path = self._path, None
+
+        try:
+            path.unlink(missing_ok=True)
         except OSError as error:
             logger.warning("VoIP recording removal failed: error=%s", type(error).__name__)
-            return
 
-        self._path = None
-        self._discard_requested = False
+            with self._path_lock:
+                self._path = path
 
     async def close(self) -> None:
         """Own cleanup even if this particular waiter is cancelled."""
@@ -305,9 +353,11 @@ class CallRecorder:
     async def _close_owned(self) -> None:
         try:
             if self._export is not None:
-                await self._export
+                await asyncio.wrap_future(self._export)
             else:
-                await asyncio.to_thread(self._capture.close)
+                await asyncio.wrap_future(
+                    self._start_worker(self._capture.close, "call-pcm-close")
+                )
         except Exception as error:
             logger.warning("VoIP recording cleanup failed: error=%s", type(error).__name__)
         finally:
