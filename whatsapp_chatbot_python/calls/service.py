@@ -11,7 +11,6 @@ from .models import (
     CallExecutionResult,
     CallOptions,
     CallSession,
-    CallServiceUnavailable,
     PlaybackOptions,
     ProviderConfig,
     RecordingOptions,
@@ -64,13 +63,12 @@ class WhatsAppCallService:
 
         self._gate = asyncio.Lock()
         self._runner = None
-        self._runner_with_incomplete_cleanup = None
         self._stopped = False
-        self._healthy = True
 
     @property
     def healthy(self) -> bool:
-        return self._healthy
+        """Whether another call may be attempted."""
+        return not self._stopped
 
     async def execute(
         self,
@@ -120,19 +118,14 @@ class WhatsAppCallService:
 
             raise
         finally:
-            if self._runner is not None and self._runner.cleanup_failed:
-                self._healthy = False
-                self._runner_with_incomplete_cleanup = self._runner
+            if self._runner is not None:
+                self._runner.log_cleanup_error()
 
             self._runner = None
 
     def _admit(self, session: CallSession, transition: TransitionCallback) -> bool:
         if session.finished:
             return False
-
-        if not self._healthy:
-            transition(session, CallEvent.INTERNAL_ERROR, error_code="service_unhealthy")
-            raise CallServiceUnavailable("Call service requires recovery after cleanup failure")
 
         if self._stopped:
             transition(session, CallEvent.SHUTDOWN_REQUESTED)

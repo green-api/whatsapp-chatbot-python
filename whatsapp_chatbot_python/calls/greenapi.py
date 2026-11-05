@@ -88,6 +88,10 @@ class GreenApiCall:
         if self._closing:
             raise RuntimeError("Green API call is closing")
 
+    @property
+    def is_rtc_close_pending(self) -> bool:
+        return self._rtc_close_task is not None and not self._rtc_close_task.done()
+
     async def _close_rtc(self) -> None:
         if self._rtc_close_task is None:
             self._rtc_close_task = asyncio.create_task(
@@ -97,10 +101,23 @@ class GreenApiCall:
 
             self._rtc_close_task.add_done_callback(self._observe_rtc_close)
 
-        try:
-            await asyncio.wait_for(
-                asyncio.shield(self._rtc_close_task), self._shutdown_timeout,
+        done, _ = await asyncio.wait({self._rtc_close_task}, timeout=self._shutdown_timeout)
+
+        if not done:
+            self._rtc_close_task.cancel()
+
+            done, _ = await asyncio.wait(
+                {self._rtc_close_task}, timeout=min(self._shutdown_timeout, 1.0),
             )
+
+            self.close_errors.append(CallCleanupError("rtc_close", TimeoutError()))
+
+            return
+
+        try:
+            self._rtc_close_task.result()
+        except asyncio.CancelledError:
+            self.close_errors.append(CallCleanupError("rtc_close", RuntimeError("RTC close was cancelled")))
         except Exception as error:
             self.close_errors.append(CallCleanupError("rtc_close", error))
 

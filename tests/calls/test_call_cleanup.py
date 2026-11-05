@@ -2,6 +2,8 @@
 
 import asyncio
 import unittest
+from types import SimpleNamespace
+from threading import Event
 from time import monotonic
 from unittest.mock import patch
 
@@ -39,14 +41,16 @@ class CleanupTest(unittest.IsolatedAsyncioTestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def service(self, *, setup=0.2):
+    def service(self, *, setup=0.2, talk=0.2):
         return WhatsAppCallService(
             api_url="https://example.invalid", id_instance="1",
             api_token_instance="token", openai_api_key="key",
             realtime_model="test", realtime_voice="marin",
             options=CallOptions(
-                setup_seconds=setup, command_seconds=setup,
-                ring_seconds=0.2, talk_seconds=0.2,
+                setup_seconds=setup,
+                command_seconds=setup,
+                ring_seconds=0.2,
+                talk_seconds=talk,
                 shutdown_seconds=0.2,
                 recording=RecordingOptions(enabled=False),
             ),
@@ -128,35 +132,167 @@ class CleanupTest(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("RTC close failed")
 
         with patch.object(FakeRtc, "closeAsync", broken_close):
-            with self.assertRaisesRegex(RuntimeError, "RTC close failed"):
+            with self.assertLogs("whatsapp_chatbot_python.calls.call_runner", level="WARNING") as logs:
                 await asyncio.wait_for(self.service().execute(session, self.fsm.apply), 0.5)
 
         self.assertTrue(self.apis[0].session_closed)
         self.assertTrue(self.voices[0].closed)
         # The remote outcome is already terminal; cleanup errors surface separately.
         self.assertEqual(session.state, CallState.REMOTE_ENDED)
+        self.assertTrue(any("WARNING!!!" in message for message in logs.output))
 
-    async def test_rtc_close_timeout_disables_service_and_continues_later(self):
+    async def test_rtc_close_timeout_warns_and_allows_next_call(self):
         self.scenario.gates["rtc_close"] = asyncio.Event()
         self.scenario.remote_hangup = True
         session = self.session()
         service = self.service()
 
-        try:
-            with self.assertRaises(TimeoutError):
+        with self.assertLogs("whatsapp_chatbot_python.calls.call_runner", level="WARNING") as logs:
+            await asyncio.wait_for(service.execute(session, self.fsm.apply), 1)
+
+        self.assertTrue(service.healthy)
+        self.assertTrue(self.apis[0].session_closed)
+        self.assertTrue(self.voices[0].closed)
+        self.assertFalse(self.apis[0].rtc.closed)
+        self.assertTrue(any("WARNING!!!" in message for message in logs.output))
+
+        self.scenario.gates["rtc_close"].set()
+        await asyncio.wait_for(service.execute(self.session(), self.fsm.apply), 1)
+        self.assertEqual(len(self.apis), 2)
+        self.assertTrue(self.apis[1].rtc.closed)
+
+    async def test_remote_finish_failure_recovers_on_next_call(self):
+        self.scenario.remote_hangup = False
+        service = self.service(talk=0.02)
+        original_get_state = FakeApi.getStateAsync
+
+        async def fail_first_finish(api):
+            if api is self.apis[0] and api.state != "idle":
+                raise ConnectionError("Green API temporarily unavailable")
+
+            return await original_get_state(api)
+
+        with patch.object(FakeApi, "getStateAsync", fail_first_finish):
+            with self.assertLogs("whatsapp_chatbot_python.calls.call_runner", level="WARNING") as logs:
+                with self.assertRaisesRegex(RuntimeError, "greenapi"):
+                    await asyncio.wait_for(service.execute(self.session(), self.fsm.apply), 1)
+
+        self.assertTrue(service.healthy)
+        self.assertTrue(self.apis[0].session_closed)
+        self.assertTrue(self.apis[0].rtc.closed)
+        self.assertTrue(any("is_remote_finish_unknown=True" in line for line in logs.output))
+
+        self.scenario.remote_hangup = True
+        await asyncio.wait_for(service.execute(self.session(), self.fsm.apply), 1)
+        self.assertEqual(len(self.apis), 2)
+        self.assertIn(("dial", "sender@c.us"), self.scenario.actions)
+        self.assertTrue(self.apis[1].session_closed)
+
+    async def test_remote_finish_failure_recovers_across_call_event_loops(self):
+        self.scenario.remote_hangup = False
+        service = self.service(talk=0.02)
+        original_get_state = FakeApi.getStateAsync
+
+        async def fail_first_finish(api):
+            if api is self.apis[0] and api.state != "idle":
+                raise ConnectionError("Green API temporarily unavailable")
+
+            return await original_get_state(api)
+
+        def execute_in_new_loop():
+            return asyncio.run(service.execute(self.session(), self.fsm.apply))
+
+        with patch.object(FakeApi, "getStateAsync", fail_first_finish):
+            with self.assertRaisesRegex(RuntimeError, "greenapi"):
+                await asyncio.to_thread(execute_in_new_loop)
+
+        self.scenario.remote_hangup = True
+        await asyncio.to_thread(execute_in_new_loop)
+        self.assertEqual(len(self.apis), 2)
+        self.assertTrue(service.healthy)
+
+    async def test_unknown_remote_finish_marks_this_call_failed_but_keeps_service_ready(self):
+        self.scenario.remote_hangup = False
+        service = self.service(talk=0.02)
+        session = self.session()
+        original_get_state = FakeApi.getStateAsync
+
+        async def unknown_at_finish(api):
+            if api.state != "idle":
+                return SimpleNamespace(state="on-call", info=None, reason=None)
+
+            return await original_get_state(api)
+
+        with patch.object(FakeApi, "getStateAsync", unknown_at_finish):
+            with self.assertLogs("whatsapp_chatbot_python.calls.call_runner", level="ERROR") as logs:
                 await asyncio.wait_for(service.execute(session, self.fsm.apply), 1)
 
-            self.assertFalse(service.healthy)
+        self.assertEqual(session.state, CallState.FAILED)
+        self.assertEqual(session.error_code, "finish_unknown")
+        self.assertTrue(service.healthy)
+        self.assertTrue(any("is_remote_finish_unknown=True" in line for line in logs.output))
+
+    async def test_next_call_starts_while_previous_recording_is_still_exporting(self):
+        from whatsapp_chatbot_python.calls.recorder import CallRecorder
+
+        started, release = Event(), Event()
+        original_finish = CallRecorder._finish_blocking
+        exporting_recorders = []
+        service = self.service()
+
+        def slow_first_export(recorder):
+            exporting_recorders.append(recorder)
+            started.set()
+            release.wait(2)
+
+            return original_finish(recorder)
+
+        try:
+            with patch.object(CallRecorder, "_finish_blocking", slow_first_export):
+                with self.assertLogs("whatsapp_chatbot_python.calls.call_runner", level="ERROR") as logs:
+                    first = await asyncio.wait_for(service.execute(self.session(), self.fsm.apply), 1)
+
+            self.assertTrue(started.is_set())
+            self.assertIsNone(first.recording_path)
+            self.assertTrue(any("is_recording_export_running=True" in line for line in logs.output))
+
+            second = await asyncio.wait_for(service.execute(self.session(), self.fsm.apply), 1)
+            self.assertIsNone(second.recording_path)
+            self.assertEqual(len(self.apis), 2)
+            self.assertTrue(service.healthy)
+        finally:
+            release.set()
+
+            for recorder in exporting_recorders:
+                await asyncio.to_thread(recorder._export.result, 1)
+
+    async def test_unfinished_local_close_warns_without_skipping_other_resources(self):
+        from whatsapp_chatbot_python.calls.call_runner import Operations
+
+        release = asyncio.Event()
+        self.scenario.remote_hangup = True
+        service = self.service()
+
+        async def ignore_first_cancel(operations):
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                await release.wait()
+
+        try:
+            with patch.object(Operations, "close", ignore_first_cancel):
+                with self.assertLogs("whatsapp_chatbot_python.calls.call_runner", level="WARNING") as logs:
+                    await asyncio.wait_for(service.execute(self.session(), self.fsm.apply), 1)
+
             self.assertTrue(self.apis[0].session_closed)
             self.assertTrue(self.voices[0].closed)
-            self.assertFalse(self.apis[0].rtc.closed)
+            self.assertTrue(service.healthy)
+            self.assertTrue(any("unfinished_tasks=1" in line for line in logs.output))
         finally:
-            self.scenario.gates["rtc_close"].set()
+            release.set()
+            await asyncio.sleep(0)
 
-        await asyncio.wait_for(service._runner_with_incomplete_cleanup._resources.api._rtc_close_task, 0.5)
-        self.assertTrue(self.apis[0].rtc.closed)
-
-    async def test_slow_operations_cleanup_does_not_skip_other_owners(self):
+    async def test_slow_operations_cleanup_closes_other_owners_before_returning(self):
         from whatsapp_chatbot_python.calls.call_runner import Operations
 
         release = asyncio.Event()
@@ -166,24 +302,55 @@ class CleanupTest(unittest.IsolatedAsyncioTestCase):
         async def delayed_close(operations):
             await release.wait()
 
-        try:
-            with patch.object(Operations, "close", delayed_close):
-                with self.assertRaises(TimeoutError):
-                    await asyncio.wait_for(
-                        service.execute(self.session(), self.fsm.apply), 1,
-                    )
+        with patch.object(Operations, "close", delayed_close):
+            await asyncio.wait_for(service.execute(self.session(), self.fsm.apply), 1)
 
-            self.assertFalse(service.healthy)
-            self.assertFalse(self.apis[0].session_closed)
-            self.assertFalse(self.voices[0].closed)
-        finally:
-            release.set()
-
-        cleanup = service._runner_with_incomplete_cleanup._resources._cleanup_still_running
-        await asyncio.wait_for(cleanup, 0.5)
+        self.assertTrue(service.healthy)
         self.assertTrue(self.apis[0].session_closed)
         self.assertTrue(self.apis[0].rtc.closed)
         self.assertTrue(self.voices[0].closed)
+        release.set()
+
+    async def test_close_timeout_records_only_the_task_outcome_after_cancel(self):
+        from whatsapp_chatbot_python.calls.call_runner import CallResources
+
+        async def make_resources():
+            resources = object.__new__(CallResources)
+            resources.options = SimpleNamespace(shutdown_seconds=0.5)
+            resources.api = SimpleNamespace(close_errors=[])
+            resources.cleanup_errors = []
+            resources._pending_cleanup = set()
+            return resources
+
+        for close_result in ("success", ValueError("close failed")):
+            with self.subTest(close_result=close_result):
+                resources = await make_resources()
+                cancelled = asyncio.Event()
+                release = asyncio.Event()
+
+                async def close_operation():
+                    try:
+                        await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        cancelled.set()
+                        await release.wait()
+
+                        if isinstance(close_result, Exception):
+                            raise close_result
+
+                close_task = asyncio.create_task(
+                    resources._close_step("test_close", lambda: close_operation())
+                )
+
+                await asyncio.wait_for(cancelled.wait(), 1)
+                release.set()
+                await asyncio.wait_for(close_task, 1)
+
+                if close_result == "success":
+                    self.assertEqual(resources.cleanup_errors, [])
+                else:
+                    self.assertEqual(len(resources.cleanup_errors), 1)
+                    self.assertIs(resources.cleanup_errors[0].cause, close_result)
 
     async def test_late_prepare_cannot_open_rtc_after_cleanup_started(self):
         release = asyncio.Event()
@@ -202,18 +369,13 @@ class CleanupTest(unittest.IsolatedAsyncioTestCase):
             try:
                 await self.wait_action("voice_start")
                 service.request_stop()
-                with self.assertRaises(TimeoutError):
-                    await asyncio.wait_for(execution, 1)
+                await asyncio.wait_for(execution, 1)
 
-                self.assertFalse(service.healthy)
-                self.assertFalse(self.apis[0].session_closed)
+                self.assertFalse(service.healthy)  # request_stop() is permanent.
+                self.assertTrue(self.apis[0].session_closed)
                 self.assertIsNone(self.apis[0].rtc)
             finally:
                 release.set()
 
-            cleanup = service._runner_with_incomplete_cleanup._resources._cleanup_still_running
-            await asyncio.wait_for(cleanup, 0.5)
-
-        self.assertTrue(self.apis[0].session_closed)
         self.assertTrue(self.voices[0].closed)
         self.assertIsNone(self.apis[0].rtc)

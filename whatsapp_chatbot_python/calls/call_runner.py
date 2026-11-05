@@ -6,6 +6,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
+from dataclasses import dataclass
 from time import monotonic
 
 from .models import (
@@ -39,6 +40,14 @@ from .models import (
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CleanupResult:
+    is_remote_finish_unknown: bool = False
+    is_local_close_unknown: bool = False
+    unfinished_task_count: int = 0
+    is_recording_export_running: bool = False
 
 
 class Events:
@@ -156,6 +165,10 @@ class Operations:
     def begin_stop(self) -> None:
         self._stopping = True
 
+    @property
+    def pending_task_count(self) -> int:
+        return sum(not task.done() for task in self._tasks.values())
+
 
 async def finish_cleanup(work: Awaitable[None]) -> None:
     """Drain cleanup despite repeated cancellation, then propagate cancellation."""
@@ -227,8 +240,6 @@ class CallResources:
         self.cleanup_errors: list[CallCleanupError] = []
         self._pending_cleanup: set[asyncio.Task] = set()
         self._closing = False
-        self._cleanup_still_running: asyncio.Task | None = None
-        self._discard_recording = False
 
     async def __aenter__(self) -> CallResources:
         try:
@@ -297,55 +308,9 @@ class CallResources:
     async def _close(self) -> None:
         self._closing = True
         self.operations.begin_stop()
-        operations = asyncio.create_task(self.operations.close(), name="call:stop-operations")
-
-        try:
-            await asyncio.wait_for(asyncio.shield(operations), self.options.shutdown_seconds)
-        except Exception as error:
-            self.cleanup_errors.append(CallCleanupError("operations_close", error))
-
-            self._cleanup_still_running = asyncio.create_task(
-                self._close_after_operations(operations), name="call:finish-late-cleanup",
-            )
-
-            self._cleanup_still_running.add_done_callback(self._observe_late_cleanup)
-
-            raise
-
+        await self._close_step("operations_close", self.operations.close)
         await self._close_owned()
         self._raise_cleanup_errors()
-
-    async def _close_after_operations(self, operations: asyncio.Task) -> None:
-        previous_errors = len(self.cleanup_errors)
-        try:
-            try:
-                await operations
-            except Exception as error:
-                self.cleanup_errors.append(CallCleanupError("operations_close", error))
-
-            await self._close_owned()
-        finally:
-            for error in self.cleanup_errors[previous_errors:]:
-                logger.error(
-                    "Late call cleanup failed: session=%s stage=%s code=%s",
-                    self._session.session_id, error.stage, error.code,
-                )
-
-            if self._discard_recording:
-                self.recorder.discard()
-
-    def _observe_late_cleanup(self, task: asyncio.Task) -> None:
-        if task.cancelled():
-            logger.error("Late call cleanup was cancelled: session=%s", self._session.session_id)
-            return
-
-        error = task.exception()
-
-        if error is not None:
-            logger.error(
-                "Late call cleanup failed: session=%s type=%s",
-                self._session.session_id, type(error).__name__,
-            )
 
     async def _close_owned(self) -> None:
         try:
@@ -354,38 +319,74 @@ class CallResources:
             await self._close_step("recording_close", self._finish_recording)
 
     def _raise_cleanup_errors(self) -> None:
-        if self.cleanup_errors:
+        if self.cleanup_errors and self._is_cleanup_error_changes_call_result():
             error = self.cleanup_errors[0]
             raise error.cause from error
 
-    def discard_recording(self) -> None:
-        if self._cleanup_still_running is not None and not self._cleanup_still_running.done():
-            self._discard_recording = True
-            return
+    def _is_cleanup_error_changes_call_result(self) -> bool:
+        return not self._session.finished and self.finish_result is None
 
+    def discard_recording(self) -> None:
         self.recorder.discard()
+
+    @property
+    def cleanup_result(self) -> CleanupResult:
+        stages = {error.stage for error in self.cleanup_errors}
+        pending = sum(not task.done() for task in self._pending_cleanup)
+        pending += self.operations.pending_task_count
+        pending += int(self.api.is_rtc_close_pending)
+
+        return CleanupResult(
+            is_remote_finish_unknown=(
+                "remote_finish" in stages or self.finish_result == FinishResult.UNKNOWN
+            ),
+            is_local_close_unknown=bool(stages - {"remote_finish"}) or pending > 0,
+            unfinished_task_count=pending,
+            is_recording_export_running=self.recorder.export_running,
+        )
 
     async def _close_step(
         self, stage: str, operation: Callable[..., Awaitable[None]], *args,
     ) -> None:
         task = asyncio.create_task(operation(*args), name=f"call:close:{stage}")
         timeout = self.options.shutdown_seconds * (2 if stage == "greenapi_close" else 1)
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+
+        if not done:
+            task.cancel()
+            done, _ = await asyncio.wait({task}, timeout=min(timeout, 1.0))
+
+            if not done:
+                self._pending_cleanup.add(task)
+                task.add_done_callback(lambda finished: self._observe_late_close(stage, finished))
+                self._record_close_error(stage, TimeoutError())
+
+                return
+
+            if task.cancelled():
+                self._record_close_error(stage, TimeoutError())
+                return
+
+            error = task.exception()
+
+            if error is not None:
+                self._record_close_error(stage, error)
+
+            return
 
         try:
-            await asyncio.wait_for(asyncio.shield(task), timeout)
+            task.result()
+        except asyncio.CancelledError:
+            self._record_close_error(stage, RuntimeError("Close task was cancelled"))
         except Exception as error:
-            if not task.done():
-                self._pending_cleanup.add(task)
-                task.add_done_callback(lambda done: self._observe_late_close(stage, done))
+            self._record_close_error(stage, error)
 
-            if stage == "greenapi_close" and self.api.close_errors:
-                self.cleanup_errors.extend(self.api.close_errors)
-                return
-
-            if isinstance(error, CallCleanupError):
-                self.cleanup_errors.append(error)
-                return
-
+    def _record_close_error(self, stage: str, error: Exception) -> None:
+        if stage == "greenapi_close" and self.api.close_errors:
+            self.cleanup_errors.extend(self.api.close_errors)
+        elif isinstance(error, CallCleanupError):
+            self.cleanup_errors.append(error)
+        else:
             self.cleanup_errors.append(CallCleanupError(stage, error))
 
     def _observe_late_close(self, stage: str, task: asyncio.Task) -> None:
@@ -419,7 +420,7 @@ class CallResources:
             self.recorder.discard()
             return CallExecutionResult()
 
-        return CallExecutionResult(self.recorder.take())
+        return CallExecutionResult(self.recorder.take_ready_or_discard())
 
 
 _DEADLINE_EVENTS = {
@@ -457,8 +458,29 @@ class CallRunner:
         self._events.emit(StopRequested())
 
     @property
-    def cleanup_failed(self) -> bool:
-        return self._resources is not None and bool(self._resources.cleanup_errors)
+    def cleanup_result(self) -> CleanupResult:
+        return self._resources.cleanup_result if self._resources is not None else CleanupResult()
+
+    def log_cleanup_error(self) -> None:
+        outcome = self.cleanup_result
+
+        if not (
+            outcome.is_remote_finish_unknown or outcome.is_local_close_unknown
+            or outcome.is_recording_export_running
+        ):
+            return
+
+        logger.error(
+            "WARNING!!! Call cleanup was not fully finished. You may need to perform a reboot: session=%s "
+            "is_remote_finish_unknown=%s is_local_close_unknown=%s "
+            "unfinished_tasks=%s is_recording_export_running=%s; "
+            "cleanup failure does not disable later call attempts",
+            self.session.session_id,
+            outcome.is_remote_finish_unknown,
+            outcome.is_local_close_unknown,
+            outcome.unfinished_task_count,
+            outcome.is_recording_export_running,
+        )
 
     def notify_incoming_ended(self, call_id: str) -> bool:
         if (

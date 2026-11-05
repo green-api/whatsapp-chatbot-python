@@ -13,7 +13,6 @@ from .models import (
     CallExecutor,
     CallOptions,
     CallSession,
-    CallServiceUnavailable,
     CallState,
     IncomingCallExecutor,
     InputAudioOptions,
@@ -35,7 +34,7 @@ from .state_machine import CallStateMachine
 
 __all__ = [
     "ACTIVE_STATES", "TERMINAL_STATES", "WAITING_STATES", "AudioLoss", "CallDirection", "CallEndReason", "CallEvent",
-    "CallExecutionResult", "CallExecutor", "CallOptions", "CallSession", "CallServiceUnavailable", "CallState",
+    "CallExecutionResult", "CallExecutor", "CallOptions", "CallSession", "CallState",
     "CallStateMachine", "IncomingCallExecutor", "InputAudioOptions", "InputOverflowPolicy", "PlaybackOptions",
     "PlaybackOverflowPolicy", "ProviderError", "RecordingOptions", "StateTransition", "TransitionCallback",
     "VadOptions", "WhatsAppCallService",

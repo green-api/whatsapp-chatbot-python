@@ -456,16 +456,12 @@ class ProviderError(RuntimeError):
 
 
 class CallCleanupError(RuntimeError):
-    """A resource could not be confirmed closed; the instance needs recovery."""
+    """A call resource could not be confirmed closed during cleanup."""
     def __init__(self, stage: str, cause: Exception) -> None:
         self.stage = stage
         self.cause = cause
         self.code = f"cleanup_{stage}_{type(cause).__name__}"
         super().__init__(f"Call cleanup failed at {stage}: {type(cause).__name__}")
-
-
-class CallServiceUnavailable(RuntimeError):
-    """A previous call left resource ownership uncertain for this instance."""
 
 
 @dataclass(frozen=True)
