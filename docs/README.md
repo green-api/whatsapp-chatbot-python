@@ -1,6 +1,6 @@
 # whatsapp-chatbot-python
 
-![](https://img.shields.io/badge/license-CC%20BY--ND%204.0-green)
+[![](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 ![](https://img.shields.io/pypi/status/whatsapp-chatbot-python)
 ![](https://img.shields.io/pypi/pyversions/whatsapp-chatbot-python)
 ![](https://img.shields.io/github/actions/workflow/status/green-api/whatsapp-chatbot-python/python-package.yml)
@@ -9,6 +9,8 @@
 whatsapp-chatbot-python - библиотека для интеграции с мессенджером WhatsApp через API
 сервиса [green-api.com](https://green-api.com/). Чтобы воспользоваться библиотекой, нужно получить регистрационный токен
 и ID аккаунта в [личном кабинете](https://console.green-api.com/). Есть бесплатный тариф аккаунта разработчика.
+
+ИИ-агентам при работе с репозиторием следует прочитать [AGENTS.md](../AGENTS.md) перед изменением кода.
 
 ## API
 
@@ -633,7 +635,4 @@ else:
 
 ## Лицензия
 
-Лицензировано на условиях [
-Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0)
-](https://creativecommons.org/licenses/by-nd/4.0/).
-[LICENSE](../LICENSE).
+Лицензировано на условиях [MIT License](../LICENSE).

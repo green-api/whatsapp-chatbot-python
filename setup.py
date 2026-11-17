@@ -20,7 +20,7 @@ setup(
         "Development Status :: 5 - Production/Stable",
         "Environment :: Console",
         "Intended Audience :: Developers",
-        "License :: Other/Proprietary License",
+        "License :: OSI Approved :: MIT License",
         "Natural Language :: English",
         "Natural Language :: Russian",
         "Operating System :: OS Independent",
@@ -39,10 +39,7 @@ setup(
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Libraries :: Application Frameworks"
     ],
-    license=(
-        "Creative Commons Attribution-NoDerivatives 4.0 International"
-        " (CC BY-ND 4.0)"
-    ),
+    license="MIT License",
     install_requires=["whatsapp-api-client-python>=0.0.53"],
     extras_require={
         "voip": [
