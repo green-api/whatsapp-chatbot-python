@@ -12,6 +12,11 @@ whatsapp-chatbot-python - библиотека для интеграции с м
 
 ИИ-агентам при работе с репозиторием следует прочитать [AGENTS.md](../AGENTS.md) перед изменением кода.
 
+Установленный пакет содержит `AGENTS.md` и `ARCHITECTURE.md` внутри
+`whatsapp_chatbot_python`. На Python 3.9+ их можно прочитать через
+`importlib.resources.files("whatsapp_chatbot_python").joinpath("ARCHITECTURE.md").read_text(encoding="utf-8")`.
+Это документация по разработке SDK; файлы не копируются в корень вашего проекта.
+
 ## API
 
 Документация к REST API находится по [ссылке](https://green-api.com/docs/api/). Библиотека является обёрткой к REST API,

@@ -14,6 +14,11 @@ your [personal cabinet](https://console.green-api.com/) to use the library. Ther
 
 AI agents working with this repository should read [AGENTS.md](AGENTS.md) before changing code.
 
+Installed packages include `AGENTS.md` and `ARCHITECTURE.md` inside
+`whatsapp_chatbot_python`. On Python 3.9+, read them with
+`importlib.resources.files("whatsapp_chatbot_python").joinpath("ARCHITECTURE.md").read_text(encoding="utf-8")`.
+These files describe SDK development; they are not copied into your project root.
+
 ## API
 
 The documentation for the REST API can be found at the [link](https://green-api.com/en/docs/). The library is a wrapper
