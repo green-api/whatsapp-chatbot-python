@@ -354,6 +354,7 @@ class CallerSink:
         stream_ended = False
         reported_dropped_samples = 0
         next_loss_report_at = 0.0
+        next_media_time = None
 
         try:
             while True:
@@ -363,7 +364,15 @@ class CallerSink:
                     if sender.done():
                         return
 
-                    await self._queue_frame(frame, buffer, frame_start_at)
+                    media_time = self._media_time(frame)
+
+                    if media_time is not None:
+                        if next_media_time is not None:
+                            await self._fill_gap(media_time - next_media_time, buffer)
+
+                        next_media_time = media_time + frame.samples / PCM.rate
+
+                    await self._queue_frame(frame, buffer, frame_start_at, media_time)
 
                     frame_start_at += frame.samples / PCM.rate
 
@@ -410,16 +419,29 @@ class CallerSink:
 
         return frames, received_at - duration
 
+    @staticmethod
+    def _media_time(frame: AudioFrame) -> float | None:
+        if frame.pts is None or frame.time_base is None:
+            return None
+
+        return float(frame.pts * frame.time_base)
+
+    async def _fill_gap(self, gap_seconds: float, buffer: _InputAudioBuffer) -> None:
+        """Send silence for caller audio the network did not deliver, such as WhatsApp's silence suppression."""
+        if gap_seconds <= PCM.frame_seconds / 2:
+            return
+
+        samples = round(min(gap_seconds, self._options.max_gap_fill_seconds) * PCM.rate)
+
+        if samples > 0:
+            await buffer.put(bytes(samples * PCM16_SAMPLE_BYTES))
+
     async def _queue_frame(
         self, frame: AudioFrame, buffer: _InputAudioBuffer, frame_start_at: float,
+        media_time: float | None,
     ) -> None:
         frame_bytes = frame.samples * PCM16_SAMPLE_BYTES
         data = bytes(frame.planes[0])[:frame_bytes]
-
-        media_time = (
-            float(frame.pts * frame.time_base)
-            if frame.pts is not None and frame.time_base is not None else None
-        )
 
         self._tap.write(Track.CALLER, data, media_time, frame_start_at=frame_start_at)
         await buffer.put(data)

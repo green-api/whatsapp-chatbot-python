@@ -353,9 +353,13 @@ class InputAudioOptions:
     send_seconds: float = 2
     enqueue_seconds: float = 0.25
     overflow_policy: InputOverflowPolicy | str = InputOverflowPolicy.DROP_OLDEST
+    max_gap_fill_seconds: float = 2
 
     def __post_init__(self) -> None:
         positive_values(self.buffer_seconds, self.send_seconds, self.enqueue_seconds)
+
+        if not isfinite(self.max_gap_fill_seconds) or self.max_gap_fill_seconds < 0:
+            raise ValueError("Gap fill limit must be zero or positive seconds")
 
         try:
             policy = InputOverflowPolicy(self.overflow_policy)

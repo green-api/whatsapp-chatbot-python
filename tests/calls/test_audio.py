@@ -177,6 +177,54 @@ class AudioBoundaryTest(unittest.IsolatedAsyncioTestCase):
     async def test_100_ready_rtc_frames_are_sent_in_order(self):
         await self._assert_rtc_frames_sent(100)
 
+    async def _send_frames_at(self, frame_positions, options=None):
+        class ReadyTrack:
+            def __init__(self, frames):
+                self.frames = deque(frames)
+
+            async def recv(self):
+                if not self.frames:
+                    raise MediaStreamError
+                return self.frames.popleft()
+
+        class FastSink:
+            def __init__(self):
+                self.sent = []
+
+            async def write_audio(self, data):
+                self.sent.append(data)
+
+        frames = []
+        for position in frame_positions:
+            frame = av.AudioFrame(format="s16", layout="mono", samples=PCM.samples_per_frame)
+            frame.planes[0].update(FRAME)
+            frame.sample_rate = PCM.rate
+            frame.pts = position * PCM.samples_per_frame
+            frame.time_base = Fraction(1, PCM.rate)
+            frames.append(frame)
+
+        sink = FastSink()
+        caller = CallerSink(sink, RecordingTap(Capture()), lambda event: None, options)
+        try:
+            await asyncio.wait_for(caller._consume(ReadyTrack(frames)), timeout=1)
+        finally:
+            await caller.close()
+        return b"".join(sink.sent)
+
+    async def test_caller_timestamp_gap_is_sent_as_silence(self):
+        sent = await self._send_frames_at([0, 1, 11])
+        self.assertEqual(sent, FRAME * 2 + bytes(9 * PCM.bytes_per_frame) + FRAME)
+
+    async def test_caller_gap_fill_is_limited(self):
+        sent = await self._send_frames_at(
+            [0, 500], InputAudioOptions(max_gap_fill_seconds=PCM.frame_seconds * 3),
+        )
+        self.assertEqual(sent, FRAME + bytes(3 * PCM.bytes_per_frame) + FRAME)
+
+    async def test_caller_gap_fill_can_be_turned_off(self):
+        sent = await self._send_frames_at([0, 11], InputAudioOptions(max_gap_fill_seconds=0))
+        self.assertEqual(sent, FRAME * 2)
+
     async def test_sender_failure_is_reported_without_another_rtc_frame(self):
         class OneFrameTrack:
             def __init__(self):
